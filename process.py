@@ -2,9 +2,11 @@ import lpips
 import torch
 from pyiqa.archs.musiq_arch import MUSIQ
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
-from utils import load_gt_video, load_sample_video, load_time_from_json, print_gpu_memory
+from utils import load_gt_video, load_sample_video, load_time_from_json, print_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, clip_transform_Image
 from tqdm import tqdm
+import torch.nn.functional as F
 import json
+import clip
 import os
 
 def lcm_metric(pred, gt, requested_metrics, 
@@ -56,20 +58,48 @@ def lcm_metric(pred, gt, requested_metrics,
 
     return result_dict
 
-def image_quality_metric(images, model):
+def visual_quality_metric(images, imaging_model, aesthetic_model, clip_model, batch_size=8):
+    result_dict = {}
+    image_transform = clip_transform_Image(224)
     scores = []
-    for i in range(len(images)):
-        frame = images[i].unsqueeze(0)
-        scores.append(model(frame))
-    return scores, sum(scores) / len(scores)
+    for i in range(0, len(images), batch_size):
+        frame = images[i:i+batch_size]
+        imaging_batch = imaging_model(frame).cpu().tolist()
+        imaging_batch = [item[0] for item in imaging_batch]
+        scores.extend(imaging_batch)
+    result_dict["imaging"] = scores
+    result_dict["avg_imaging"] = sum(scores) / len(scores)
 
-def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','lpips'], video_max_time=200, process_batch_size=100, musiq_model_path="/data/code/wwj/code/Metric/model/musiq_spaq_ckpt-358bb6af.pth", device='cuda:0'):
+    scores = []
+    for i in range(0, len(images), batch_size):
+        batch = images[i: i+batch_size]
+        batch = image_transform(batch)
+        image_feats = clip_model.encode_image(batch).to(torch.float32)
+        image_feats = F.normalize(image_feats, dim=-1, p=2)
+        aesthetic_scores = aesthetic_model(image_feats).squeeze(dim=-1)
+        scores.extend(aesthetic_scores.cpu().tolist())
+    result_dict["aesthetic"] = scores
+    result_dict["avg_aesthetic"] = sum(scores) / len(scores)
+    return result_dict
+
+def action_accuracy_metrix(pred, gt):
+    pass
+
+def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','lpips'], video_max_time=100, process_batch_size=10, device='cuda:0'):
     lpips_metric = lpips.LPIPS(net='alex', spatial=False).to(device)
     ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0, reduction='none').to(device)
     psnr_metric = PeakSignalNoiseRatio(data_range=1.0, reduction='none', dim=[1, 2, 3]).to(device)
-    image_quality_model = MUSIQ(pretrained_model_path=musiq_model_path)
-    image_quality_model.to(device)
-    image_quality_model.training = False
+    imaging_model = MUSIQ(pretrained_model_path=get_musiq_spaq_path())
+    aesthetic_model = torch.nn.Linear(768, 1)
+    clip_model, preprocess = clip.load(get_vitl_path(), device=device)
+
+    s = torch.load(get_aes_path(), weights_only=False)
+    aesthetic_model.load_state_dict(s)
+    aesthetic_model.to(device)
+    aesthetic_model.eval()
+
+    imaging_model.to(device)
+    imaging_model.training = False
     result_dict = {
         '1st_data': {
             'mem_test': {},
@@ -81,8 +111,8 @@ def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','
         }
     }
 
-    for perspective in ['1st_data', '3rd_data']:
-        for test_type in ['mem_test', 'action_space_test']:
+    for perspective in ['1st_data', ]:
+        for test_type in ['mem_test']:
             gt_dir = os.path.join(gt_root, perspective, 'test', test_type)
             test_dir = os.path.join(test_root, perspective, 'test', test_type)
             pbar = tqdm(os.listdir(gt_dir))
@@ -101,13 +131,12 @@ def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','
                 sample_imgs = sample_imgs.to(device)
 
                 # 计算LCM指标
-                lcm = lcm_metric(sample_imgs, gt_imgs, requested_metrics, lpips_metric, ssim_metric, psnr_metric, process_batch_size)
-                result_dict[perspective][test_type][data] = lcm
+                #lcm = lcm_metric(sample_imgs, gt_imgs, requested_metrics, lpips_metric, ssim_metric, psnr_metric, process_batch_size)
+                #result_dict[perspective][test_type][data] = lcm
 
                 # 计算image_quality指标
-                scores, avg_score  = image_quality_metric(sample_imgs, image_quality_model)
-                result_dict[perspective][test_type][data]['image_quality'] = scores
-                result_dict[perspective][test_type][data]['avg_image_quality'] = avg_score
+                vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model)
+                result_dict[perspective][test_type][data] = vq #.update(vq)
                 
                 # 清理内存
                 del sample_imgs, gt_imgs

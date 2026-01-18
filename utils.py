@@ -7,6 +7,8 @@ from torchvision.transforms import functional as F
 import json
 import numpy as np
 import cv2
+import subprocess
+from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize, ToPILImage
 try:
     from torchvision.transforms import InterpolationMode
     BICUBIC = InterpolationMode.BICUBIC
@@ -15,9 +17,46 @@ except ImportError:
     BICUBIC = Image.BICUBIC
     BILINEAR = Image.BILINEAR
 
-CACHE_DIR = os.environ.get('VBENCH_CACHE_DIR')
+CACHE_DIR = os.environ.get('MIND_CACHE_DIR')
 if CACHE_DIR is None:
-    CACHE_DIR = os.path.join(os.path.expanduser('~'), '.cache', 'vbench')
+    CACHE_DIR = os.path.join(os.path.expanduser('~'), '.cache', 'mind')
+
+def clip_transform(n_px):
+    return Compose([
+        Resize(n_px, interpolation=BICUBIC, antialias=False),
+        CenterCrop(n_px),
+        transforms.Lambda(lambda x: x.float().div(255.0)),
+        Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
+    ])
+
+def clip_transform_Image(n_px):
+    return Compose([
+        Resize(n_px, interpolation=BICUBIC, antialias=False),
+        CenterCrop(n_px),
+        #ToTensor(),
+        Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
+    ])
+
+def get_musiq_spaq_path():
+    musiq_spaq_path = f'{CACHE_DIR}/pyiqa_model/musiq_spaq_ckpt-358bb6af.pth'
+    if not os.path.isfile(musiq_spaq_path):
+        wget_command = ['wget', 'https://github.com/chaofengc/IQA-PyTorch/releases/download/v0.1-weights/musiq_spaq_ckpt-358bb6af.pth', '-P', os.path.dirname(musiq_spaq_path)]
+        subprocess.run(wget_command, check=True)
+    return musiq_spaq_path
+
+def get_aes_path():
+    aes_path = f'{CACHE_DIR}/vitl_model/sa_0_4_vit_l_14_linear.pth'
+    if not os.path.isfile(aes_path):
+        wget_command = ['wget' ,'https://github.com/LAION-AI/aesthetic-predictor/blob/main/sa_0_4_vit_l_14_linear.pth?raw=true', '-O', vit_l_path]
+        subprocess.run(wget_command, check=True)
+    return aes_path
+
+def get_vitl_path():
+    vit_l_path = f'{CACHE_DIR}/clip_model/ViT-L-14.pt'
+    if not os.path.isfile(vit_l_path):
+        wget_command = ['wget' ,'https://openaipublic.azureedge.net/clip/models/b8cca3fd41ae0c99ba7e8951adf17d267cdb84cd88be6f7c2e0eca1737a03836/ViT-L-14.pt', '-P', os.path.dirname(vit_l_path)]
+        subprocess.run(wget_command, check=True)
+    return vit_l_path
 
 def transform_image(images):
     # 输入: images (Tensor) - 形状为 [B, C, H, W] 输出: 归一化后的 [B, C, 1280, 720] Tensor
@@ -60,7 +99,6 @@ def load_sample_video(video_path, mark_time, total_time, max_time = 200) -> torc
     video_length = total_time - mark_time
     frames,_,_ = read_video(video_path, pts_unit='sec')
     frames = frames.permute(0, 3, 1, 2)[:min(max_time, video_length)]
-    # print("sample video length:", len(frames))
     return transform_image(frames)
 
 def load_gt_video(video_path, mark_time, total_time, max_time = 200) -> torch.Tensor:
