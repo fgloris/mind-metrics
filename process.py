@@ -3,11 +3,15 @@ import torch
 from pyiqa.archs.musiq_arch import MUSIQ
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 from utils import load_gt_video, load_sample_video, load_time_from_json, print_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, clip_transform_Image
+from vipe_utils import extract_traj
+import vipe_utils
 from tqdm import tqdm
 import torch.nn.functional as F
 import json
 import clip
 import os
+import numpy as np
+from pathlib import Path
 
 def lcm_metric(pred, gt, requested_metrics, 
                lpips_metric, ssim_metric, psnr_metric, batch_size=100):
@@ -82,8 +86,78 @@ def visual_quality_metric(images, imaging_model, aesthetic_model, clip_model, ba
     result_dict["avg_aesthetic"] = sum(scores) / len(scores)
     return result_dict
 
-def action_accuracy_metrix(pred, gt):
-    pass
+def action_accuracy_metric(pred_vid_path, gt_vid_path, cache_dir = Path("./cache_vipe"),
+                           delta = 1, max_rot_deg = 179.0, max_trans = 1e9, min_valid_steps = 8, per_action = True):
+    
+    from typing import Dict, List, Optional, Tuple
+    trans_buf: Dict[str, Dict[str, List[float]]] = {m: {} for m in models}
+    rot_buf: Dict[str, Dict[str, List[float]]] = {m: {} for m in models}
+    count_buf: Dict[str, Dict[str, int]] = {m: {} for m in models}
+
+    def add(m: str, bucket: str, te: np.ndarray, re: np.ndarray):
+        trans_buf[m].setdefault(bucket, [])
+        rot_buf[m].setdefault(bucket, [])
+        count_buf[m].setdefault(bucket, 0)
+        trans_buf[m][bucket].extend(te.tolist())
+        rot_buf[m][bucket].extend(re.tolist())
+        count_buf[m][bucket] += int(te.size)
+    
+    gt_T = extract_traj(
+        gt_vid_path, cache_dir,
+    )
+    gen_T = extract_traj(
+        pred_vid_path, cache_dir,
+    )
+
+    # Align lengths to actions (+delta poses)
+    n_steps = min(len(actions), len(gt_T) - delta, len(gen_T) - delta)
+    if n_steps <= 0:
+        print(f"[skip] Not enough steps after alignment for data {pred_vid_path}: n_steps={n_steps}")
+        return
+    gt_use = gt_T[:(n_steps + delta)]
+    gen_use = gen_T[:(n_steps + delta)]
+    actions = actions[:n_steps]
+
+    # Sim(3) align gen->gt (positions)
+    s, R, t = vipe_utils.umeyama_sim3(gen_use[:, :3, 3], gt_use[:, :3, 3])
+    gen_aligned = vipe_utils.apply_sim3_to_poses(gen_use, s, R, t)
+
+    # RPE
+    te, re = vipe_utils.compute_rpe(gt_use, gen_aligned, delta=delta)
+
+    # Filter obvious pose failures
+    valid = np.ones_like(te, dtype=bool)
+    if max_rot_deg > 0:
+        valid &= (re <= max_rot_deg)
+    if max_trans > 0:
+        valid &= (te <= max_trans)
+
+    te = te[valid]
+    re = re[valid]
+    actions_valid = [a for (a, ok) in zip(actions, valid.tolist()) if ok]
+
+    if te.size < min_valid_steps:
+        print(f"[skip] Too few valid RPE samples for data {pred_vid_path}: te.size={te.size}, min_valid_steps={min_valid_steps}")
+        return
+
+    # Overall
+    add(m, "__overall__", te, re)
+
+    # Group buckets (translation/rotation/other)
+    groups = [vipe_utils.bucket_for_action(a) for a in actions_valid]
+    for grp in {"translation", "rotation", "other"}:
+        idx = [i for i, g in enumerate(groups) if g == grp]
+        if idx:
+            add(m, grp, te[idx], re[idx])
+
+    # Optional per-action breakdown
+    if per_action:
+        uniq = sorted(set(actions_valid))
+        for a in uniq:
+            idx = [i for i, aa in enumerate(actions_valid) if aa == a]
+            add(m, f"act:{a}", te[idx], re[idx])
+
+    dump_csv()
 
 def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','lpips'], video_max_time=100, process_batch_size=10, device='cuda:0'):
     lpips_metric = lpips.LPIPS(net='alex', spatial=False).to(device)
@@ -112,7 +186,7 @@ def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','
     }
 
     for perspective in ['1st_data', ]:
-        for test_type in ['mem_test']:
+        for test_type in ['mem_test', ]:
             gt_dir = os.path.join(gt_root, perspective, 'test', test_type)
             test_dir = os.path.join(test_root, perspective, 'test', test_type)
             pbar = tqdm(os.listdir(gt_dir))

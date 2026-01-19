@@ -28,16 +28,16 @@ Manifest format (JSONL):
 Generated video default pattern:
 {gen_root}/{model}/{episode_id}.mp4
 
-python eval_action_accuracy_vipe.py \
-  --manifest /scratch/e0795287/AWAN/DATASET/MIND/world_model_1st/val_manifest_97_vipe.jsonl \
+python eval_action_accuracy_vipe_clean.py \
+  --manifest ./val_manifest_97_vipe.jsonl \
   --models dummy \
-  --gen_root /scratch/e0795287/AWAN/Outputs/gen_videos/action_bi_mind/1st_5e-5_bz4_gpu4_full_20251127_194628/checkpoint_model_002000 \
+  --gen_root . \
   --gen_pattern "{gen_root}/{episode_id}_s0.mp4" \
-  --cache_dir /scratch/e0795287/AWAN/Outputs/eval/cache_vipe \
-  --out_csv /scratch/e0795287/AWAN/Outputs/eval/action_bi_mind/1st_5e-5_bz4_gpu4_full_20251127_194628/checkpoint_model_002000/action_accuracy.csv \
+  --cache_dir ./cache_vipe \
+  --out_csv ./action_accuracy.csv \
   --per_action \
   --try_vipe_to_colmap \
-  --vipe_repo /hpctmp/e0795287/LWM/evalution/vipe 
+  --vipe_repo /home/wjp/Documents/Metric/mind-metrics/vipe
 """
 
 import argparse
@@ -62,7 +62,9 @@ import numpy as np
 class Episode:
     episode_id: str
     gt_video: Path
+    src_video: Path
     actions: List[str]
+
 
 def load_manifest_jsonl(p: Path) -> List[Episode]:
     out: List[Episode] = []
@@ -75,9 +77,11 @@ def load_manifest_jsonl(p: Path) -> List[Episode]:
             out.append(Episode(
                 episode_id=str(obj["episode_id"]),
                 gt_video=Path(obj["gt_video"]),
+                src_video=Path(obj["src_video"]),
                 actions=list(obj["actions"]),
             ))
     return out
+
 
 # -----------------------------
 # SE(3) helpers
@@ -96,11 +100,13 @@ def quat_to_R_wxyz(qw: float, qx: float, qy: float, qz: float) -> np.ndarray:
         [    2*(x*z - w*y),     2*(y*z + w*x), 1 - 2*(x*x + y*y)],
     ], dtype=np.float64)
 
+
 def make_T(R_wc: np.ndarray, t_wc: np.ndarray) -> np.ndarray:
     T = np.eye(4, dtype=np.float64)
     T[:3, :3] = R_wc
     T[:3, 3] = t_wc
     return T
+
 
 def inv_T(T: np.ndarray) -> np.ndarray:
     R = T[:3, :3]
@@ -110,11 +116,13 @@ def inv_T(T: np.ndarray) -> np.ndarray:
     Ti[:3, 3] = -R.T @ t
     return Ti
 
+
 def rot_angle_deg(R: np.ndarray) -> float:
     tr = np.trace(R)
     cos = (tr - 1.0) / 2.0
     cos = float(np.clip(cos, -1.0, 1.0))
     return float(np.degrees(np.arccos(cos)))
+
 
 # -----------------------------
 # Sim(3) Umeyama alignment
@@ -145,6 +153,7 @@ def umeyama_sim3(X: np.ndarray, Y: np.ndarray) -> Tuple[float, np.ndarray, np.nd
     t = muY - s * (R @ muX)
     return s, R, t
 
+
 def apply_sim3_to_poses(Ts: np.ndarray, s: float, R: np.ndarray, t: np.ndarray) -> np.ndarray:
     """
     Apply Sim(3) to camera->world SE(3) poses:
@@ -155,6 +164,7 @@ def apply_sim3_to_poses(Ts: np.ndarray, s: float, R: np.ndarray, t: np.ndarray) 
     out[:, :3, :3] = R @ out[:, :3, :3]
     out[:, :3, 3] = (s * (R @ out[:, :3, 3].T)).T + t[None, :]
     return out
+
 
 # -----------------------------
 # RPE
@@ -184,6 +194,7 @@ def compute_rpe(gt_T: np.ndarray, est_T: np.ndarray, delta: int = 1) -> Tuple[np
         rotdeg[i] = rot_angle_deg(E[:3, :3])
     return trans, rotdeg
 
+
 # -----------------------------
 # ViPE runner + pose parsing
 # -----------------------------
@@ -196,6 +207,7 @@ def run_cmd(cmd: List[str], cwd: Optional[Path] = None) -> None:
     p = subprocess.run(cmd, cwd=str(cwd) if cwd else None)
     if p.returncode != 0:
         raise RuntimeError(f"Command failed: {' '.join(cmd)}")
+
 
 def ensure_vipe(video: Path, out_dir: Path, vipe_mode: str, vipe_repo: Optional[Path],
                 pipeline: str, pose_only: bool) -> None:
@@ -225,6 +237,7 @@ def ensure_vipe(video: Path, out_dir: Path, vipe_mode: str, vipe_repo: Optional[
 
     done.write_text("ok\n", encoding="utf-8")
 
+
 def find_images_txt(root: Path) -> Optional[Path]:
     cands: List[Path] = []
     for dp, _, fns in os.walk(root):
@@ -240,6 +253,7 @@ def find_images_txt(root: Path) -> Optional[Path]:
             continue
     return None
 
+
 def infer_sequence_name(out_dir: Path) -> Optional[str]:
     """
     ViPE often outputs a sequence folder under out_dir.
@@ -249,6 +263,7 @@ def infer_sequence_name(out_dir: Path) -> Optional[str]:
     if len(subs) == 1:
         return subs[0].name
     return None
+
 
 def vipe_to_colmap(out_dir: Path, vipe_repo: Path, sequence: Optional[str]) -> None:
     script = vipe_repo / "scripts" / "vipe_to_colmap.py"
@@ -260,6 +275,7 @@ def vipe_to_colmap(out_dir: Path, vipe_repo: Path, sequence: Optional[str]) -> N
     if sequence is not None:
         cmd += ["--sequence", sequence]
     run_cmd(cmd, cwd=vipe_repo)
+
 
 def parse_colmap_images_txt(images_txt: Path) -> np.ndarray:
     """
@@ -299,6 +315,7 @@ def parse_colmap_images_txt(images_txt: Path) -> np.ndarray:
     entries.sort(key=lambda x: x[0])
     return np.stack([e[1] for e in entries], axis=0)
 
+
 def extract_traj(video: Path, cache_dir: Path, vipe_mode: str, vipe_repo: Optional[Path],
                  pipeline: str, pose_only: bool, try_colmap: bool) -> np.ndarray:
     key = f"{video.name}-{_sha1(str(video.resolve()))}"
@@ -325,6 +342,7 @@ def extract_traj(video: Path, cache_dir: Path, vipe_mode: str, vipe_repo: Option
 
     return parse_colmap_images_txt(images_txt)
 
+
 # -----------------------------
 # Action bucketing (optional breakdown)
 # -----------------------------
@@ -337,6 +355,7 @@ def bucket_for_action(a: str) -> str:
              "yaw_left", "yaw_right", "pitch_up", "pitch_down"}:
         return "rotation"
     return "other"
+
 
 # -----------------------------
 # Main eval
@@ -353,6 +372,7 @@ def write_csv(rows: List[Dict[str, object]], path: Path) -> None:
         w.writeheader()
         for r in rows:
             w.writerow(r)
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -536,6 +556,7 @@ def main():
     # Final write after processing all episodes
     dump_csv()
     print(f"[done] wrote {out_csv}")
+
 
 if __name__ == "__main__":
     main()
