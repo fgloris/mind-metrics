@@ -5,7 +5,7 @@ from PIL import Image, ImageSequence
 from torchvision import transforms
 from torchvision.transforms import functional as F
 import json
-import tqdm
+from tqdm import tqdm
 import numpy as np
 import cv2
 import subprocess
@@ -168,8 +168,8 @@ def extract_actions_from_json(json_path, mark_time=None, video_max_time=200):
     return actions
 
 def print_gpu_memory():
-    print(f"Allocated memory: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
-    print(f"Cached memory: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
+    tqdm.write(f"Allocated memory: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+    tqdm.write(f"Cached memory: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
 
 def crop_video_frames(video_path, max_frames, cache_dir, start_frame=0):
     """

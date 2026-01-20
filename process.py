@@ -2,7 +2,7 @@ import lpips
 import torch
 from pyiqa.archs.musiq_arch import MUSIQ
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
-from utils import load_gt_video, load_sample_video, load_time_from_json, tqdm.write_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, clip_transform_Image, extract_actions_from_json
+from utils import load_gt_video, load_sample_video, load_time_from_json, print_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, clip_transform_Image, extract_actions_from_json, crop_video_frames
 from vipe_utils import extract_traj
 import vipe_utils
 from tqdm import tqdm

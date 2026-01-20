@@ -5,7 +5,7 @@ import hashlib
 import subprocess
 import numpy as np
 import os
-import tqdm
+from tqdm import tqdm
 
 # -----------------------------
 # SE(3) helpers
@@ -117,17 +117,31 @@ def _sha1(s: str) -> str:
 
 
 def run_cmd(cmd: List[str], cwd: Optional[Path] = None, quiet: bool = False) -> None:
+    """
+    Run a shell command.
+
+    Args:
+        cmd: Command and arguments as a list
+        cwd: Working directory to run command in
+        quiet: If True, suppress stdout output (stderr is always captured)
+    """
     if not quiet:
         tqdm.write(f"Running command: {' '.join(cmd)}")
 
     if quiet:
+        # Suppress stdout but capture stderr for error reporting
         p = subprocess.run(cmd, cwd=str(cwd) if cwd else None,
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     else:
-        p = subprocess.run(cmd, cwd=str(cwd) if cwd else None)
+        # Capture stderr for error reporting while showing stdout
+        p = subprocess.run(cmd, cwd=str(cwd) if cwd else None,
+                          stderr=subprocess.PIPE, text=True)
 
     if p.returncode != 0:
-        raise RuntimeError(f"Command failed: {' '.join(cmd)}")
+        error_msg = f"Command failed: {' '.join(cmd)}"
+        if p.stderr:
+            error_msg += f"\nError output:\n{p.stderr}"
+        raise RuntimeError(error_msg)
 
 
 def find_images_txt(root: Path) -> Optional[Path]:
