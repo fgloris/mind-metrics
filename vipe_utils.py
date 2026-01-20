@@ -5,6 +5,7 @@ import hashlib
 import subprocess
 import numpy as np
 import os
+import tqdm
 
 # -----------------------------
 # SE(3) helpers
@@ -115,9 +116,16 @@ def _sha1(s: str) -> str:
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:12]
 
 
-def run_cmd(cmd: List[str], cwd: Optional[Path] = None) -> None:
-    print(f"Running command: {' '.join(cmd)}")
-    p = subprocess.run(cmd, cwd=str(cwd) if cwd else None)
+def run_cmd(cmd: List[str], cwd: Optional[Path] = None, quiet: bool = False) -> None:
+    if not quiet:
+        tqdm.write(f"Running command: {' '.join(cmd)}")
+
+    if quiet:
+        p = subprocess.run(cmd, cwd=str(cwd) if cwd else None,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        p = subprocess.run(cmd, cwd=str(cwd) if cwd else None)
+
     if p.returncode != 0:
         raise RuntimeError(f"Command failed: {' '.join(cmd)}")
 
@@ -132,8 +140,7 @@ def find_images_txt(root: Path) -> Optional[Path]:
 def vipe_to_colmap(out_dir: Path, vipe_repo: Path) -> None:
     vipe_repo = vipe_repo.resolve()
     script = Path("scripts/vipe_to_colmap.py")
-    print(vipe_repo, script)
-    run_cmd(["python", str(script), str(out_dir)], cwd=vipe_repo)
+    run_cmd(["python", str(script), str(out_dir)], cwd=vipe_repo, quiet=True)
 
 
 def parse_colmap_images_txt(images_txt: Path) -> np.ndarray:
@@ -174,13 +181,37 @@ def parse_colmap_images_txt(images_txt: Path) -> np.ndarray:
     entries.sort(key=lambda x: x[0])
     return np.stack([e[1] for e in entries], axis=0)
 
-def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default") -> np.ndarray:
+def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default", gt_cache_path: Path = None) -> np.ndarray:
+    """
+    Extract camera trajectory from video using ViPE.
+
+    Args:
+        video: Path to video file
+        cache_dir: Directory for caching ViPE outputs
+        pipeline: ViPE pipeline to use
+        gt_cache_path: Optional path to cache/load images.txt for GT videos (e.g., video directory)
+
+    Returns:
+        Array of camera poses (N, 4, 4)
+    """
     video = video.resolve()
     cache_dir = cache_dir.resolve()
+
+    # Check if GT cache exists
+    if gt_cache_path is not None:
+        gt_cache_path = Path(gt_cache_path).resolve()
+        cached_images_txt = gt_cache_path / "images.txt"
+
+        if cached_images_txt.exists():
+            tqdm.write(f"Using cached GT trajectory: {cached_images_txt}")
+            return parse_colmap_images_txt(cached_images_txt)
+
+    # Run ViPE inference (quietly)
     key = f"{video.name}-{_sha1(str(video))}"
     out_dir = cache_dir / "vipe" / key
     out_dir.mkdir(parents=True, exist_ok=True)
-    run_cmd(["vipe", "infer", str(video), "--output", str(out_dir), "--pipeline", pipeline])
+    tqdm.write(f"Running ViPE inference on {video.name}...")
+    run_cmd(["vipe", "infer", str(video), "--output", str(out_dir), "--pipeline", pipeline], quiet=True)
 
     vipe_to_colmap(out_dir, Path("vipe"))
     images_txt = find_images_txt(out_dir.parent / f"{out_dir.name}_colmap")
@@ -190,6 +221,14 @@ def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default") -> np.
             f"Could not find COLMAP images.txt under {out_dir}.\n"
             f"Tip: pass --try_vipe_to_colmap and --vipe_repo /path/to/vipe."
         )
+
+    # Cache images.txt for GT videos
+    if gt_cache_path is not None:
+        gt_cache_path.mkdir(parents=True, exist_ok=True)
+        cached_images_txt = gt_cache_path / "images.txt"
+        import shutil
+        shutil.copy2(images_txt, cached_images_txt)
+        tqdm.write(f"Cached GT trajectory to: {cached_images_txt}")
 
     return parse_colmap_images_txt(images_txt)
 

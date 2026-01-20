@@ -5,9 +5,12 @@ from PIL import Image, ImageSequence
 from torchvision import transforms
 from torchvision.transforms import functional as F
 import json
+import tqdm
 import numpy as np
 import cv2
 import subprocess
+from pathlib import Path
+import hashlib
 from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize, ToPILImage
 try:
     from torchvision.transforms import InterpolationMode
@@ -167,3 +170,61 @@ def extract_actions_from_json(json_path, mark_time=None, video_max_time=200):
 def print_gpu_memory():
     print(f"Allocated memory: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
     print(f"Cached memory: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
+
+def crop_video_frames(video_path, max_frames, cache_dir, start_frame=0):
+    """
+    Crop video to first max_frames frames using ffmpeg.
+    Returns path to cropped video (from cache if exists).
+    
+    Args:
+        video_path: Path to original video
+        max_frames: Number of frames to keep
+        cache_dir: Directory for caching cropped videos
+        start_frame: Starting frame position for cropping (default: 0)
+    
+    Returns:
+        Path to cropped video file
+    """
+    video_path = Path(video_path).resolve()
+    cache_dir = Path(cache_dir).resolve()
+    
+    # Generate cache filename based on original path and max_frames
+    video_hash = hashlib.sha1(str(video_path).encode()).hexdigest()[:12]
+    cache_filename = f"{video_path.stem}_{video_hash}_start{start_frame}_frames{max_frames}.mp4"
+    cache_path = cache_dir / "cropped_videos" / cache_filename
+    
+    # Check if cached version exists
+    if cache_path.exists():
+        tqdm.write(f"Using cached cropped video: {cache_path}")
+        return cache_path
+
+    # Create cache directory
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    tqdm.write(f"Cropping video {video_path.name} to {max_frames} frames starting from frame {start_frame}...")
+    
+    if start_frame == 0:
+        cmd = [
+            "ffmpeg", "-i", str(video_path),
+            "-vframes", str(max_frames),
+            "-c:v", "libx264", "-crf", "18",
+            "-y", str(cache_path)
+        ]
+    else:
+        cmd = [
+            "ffmpeg",
+            "-i", str(video_path),
+            "-vf", f"select=gte(n\,{start_frame})",  # 从指定帧开始
+            "-vframes", str(max_frames),
+            "-c:v", "libx264",
+            "-crf", "18",
+            "-y", str(cache_path)
+        ]
+    
+    try:
+        subprocess.run(cmd, capture_output=True, check=True, text=True)
+        tqdm.write(f"Cropped video saved to: {cache_path}")
+    except subprocess.CalledProcessError as e:
+        tqdm.write(f"Error cropping video: {e.stderr}")
+        raise
+    
+    return cache_path
