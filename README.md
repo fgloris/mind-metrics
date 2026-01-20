@@ -47,40 +47,24 @@ MIND-Data
 ```
 {model_name}
 ├── 1st_data
-│   ├── test
-│   │   ├── action_space_test
-│   │   │   ├── {corresponding data name}
-│   │   │   │   ├── action.json
-│   │   │   │   └── video.mp4
-|   |   |   ...
-|   |   |    
-│   │   └── mem_test
-│   │       ├── {corresponding data name}
-│   │       │   ├── action.json
-│   │       │   └── video.mp4
-|   |       ...
-|   └── train
-|       ├── {corresponding data name}
-|       │   ├── action.json
-|       │   └── video.mp4
+│   ├── action_space_test
+│   │   ├── {corresponding data name}
+│   │   │   └── video.mp4
+|   |   ...
+|   |    
+│   └── mem_test
+│       ├── {corresponding data name}
+│       │   └── video.mp4
 |       ...
 |
 ├── 3rd_data
-│   ├── test
-│   │   ├── action_space_test
-│   │   │   ├── {corresponding data name}
-│   │   │   │   ├── action.json
-│   │   │   │   └── video.mp4
-|   |   |   ...
-|   |   |    
-│   │   └── mem_test
-│   │       ├── {corresponding data name}
-│   │       │   ├── action.json
-│   │       │   └── video.mp4
-|   |       ...
-|   └── train
-|       ├── {corresponding data name}
-|       │   ├── action.json
-|       │   └── video.mp4
+│   ├── action_space_test
+│   │   ├── {corresponding data name}
+│   │   │   └── video.mp4
+|   |   ...
+|   |    
+│   └── mem_test
+│       ├── {corresponding data name}
+│       │   └── video.mp4
 |       ...
 ```

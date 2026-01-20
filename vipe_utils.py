@@ -116,6 +116,7 @@ def _sha1(s: str) -> str:
 
 
 def run_cmd(cmd: List[str], cwd: Optional[Path] = None) -> None:
+    print(f"Running command: {' '.join(cmd)}")
     p = subprocess.run(cmd, cwd=str(cwd) if cwd else None)
     if p.returncode != 0:
         raise RuntimeError(f"Command failed: {' '.join(cmd)}")
@@ -129,11 +130,10 @@ def find_images_txt(root: Path) -> Optional[Path]:
 
 
 def vipe_to_colmap(out_dir: Path, vipe_repo: Path) -> None:
-    script = vipe_repo / "scripts" / "vipe_to_colmap.py"
-    if not script.exists():
-        raise FileNotFoundError(f"Cannot find {script}")
-    cmd = ["python", str(script), str(out_dir)]
-    run_cmd(cmd, cwd=vipe_repo)
+    vipe_repo = vipe_repo.resolve()
+    script = Path("scripts/vipe_to_colmap.py")
+    print(vipe_repo, script)
+    run_cmd(["python", str(script), str(out_dir)], cwd=vipe_repo)
 
 
 def parse_colmap_images_txt(images_txt: Path) -> np.ndarray:
@@ -182,7 +182,7 @@ def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default") -> np.
     out_dir.mkdir(parents=True, exist_ok=True)
     run_cmd(["vipe", "infer", str(video), "--output", str(out_dir), "--pipeline", pipeline])
 
-    vipe_to_colmap(out_dir, Path("./vipe"))
+    vipe_to_colmap(out_dir, Path("vipe"))
     images_txt = find_images_txt(out_dir.parent / f"{out_dir.name}_colmap")
 
     if images_txt is None:

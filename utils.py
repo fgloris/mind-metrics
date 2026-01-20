@@ -117,6 +117,53 @@ def load_time_from_json(json_path):
         item = json.load(f)
     return item['mark_time'], item['total_time']
 
+def extract_actions_from_json(json_path, mark_time=None, video_max_time=200):
+    with open(json_path, 'r') as f:
+        action_data = json.load(f)
+
+    if mark_time is None:
+        mark_time = action_data['mark_time']
+
+    data = action_data['data']
+    end_time = min(mark_time + video_max_time, len(data))
+
+    actions = []
+    for i in range(mark_time, end_time):
+        frame = data[i]
+        ws = frame['ws']
+        ad = frame['ad']
+        ud = frame['ud']
+        lr = frame['lr']
+
+        action_parts = []
+
+        if ws == 1:
+            action_parts.append('forward')
+        elif ws == 2:
+            action_parts.append('backward')
+
+        if ad == 1:
+            action_parts.append('left')
+        elif ad == 2:
+            action_parts.append('right')
+
+        if ud == 1:
+            action_parts.append('look_up')
+        elif ud == 2:
+            action_parts.append('look_down')
+
+        if lr == 1:
+            action_parts.append('look_left')
+        elif lr == 2:
+            action_parts.append('look_right')
+
+        if len(action_parts) == 0:
+            actions.append('no_op')
+        else:
+            actions.append('+'.join(action_parts))
+
+    return actions
+
 def print_gpu_memory():
     print(f"Allocated memory: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
     print(f"Cached memory: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
