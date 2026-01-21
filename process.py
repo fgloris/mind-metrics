@@ -111,8 +111,8 @@ def action_accuracy_metric(pred_vid_path, gt_vid_path, mark_time, actions, cache
 
     # Crop videos to max_frames if specified
     tqdm.write(f"Cropping videos to {max_frames} frames...")
-    pred_vid_path = crop_video_frames(pred_vid_path, max_frames, cache_dir, start_frame=mark_time)
-    gt_vid_path = crop_video_frames(gt_vid_path, max_frames, cache_dir)
+    pred_vid_path = crop_video_frames(pred_vid_path, max_frames, cache_dir)
+    gt_vid_path = crop_video_frames(gt_vid_path, max_frames, cache_dir, start_frame=mark_time)
 
     # Extract GT trajectory with caching
     gt_T = extract_traj(
