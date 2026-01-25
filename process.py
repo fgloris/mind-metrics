@@ -295,6 +295,8 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root,
             mark_time, total_time = load_time_from_json(os.path.join(gt_dir, data_path, 'action.json'))
             result = data
             result['error'] = None
+            result['mark_time'] = mark_time
+            result['total_time'] = total_time
 
             # 读入视频
             gt_imgs = load_gt_video(os.path.join(gt_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
@@ -360,7 +362,7 @@ def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','
     Returns:
         包含所有结果的字典
     """
-    result_dict = []
+    result_dict = {'data':[], 'video_max_time':video_max_time}
 
     # 统一使用multiprocessing架构
     mp.set_start_method('spawn', force=True)
@@ -402,7 +404,9 @@ def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','
                 for i in range(num_gpus)
             ]
 
-            result_dict += pool.starmap(compute_metrics_single_gpu, worker_args)
+            result_list = pool.starmap(compute_metrics_single_gpu, worker_args)
+            for result in result_list:
+                result_dict['data'] += result
 
     except KeyboardInterrupt:
         tqdm.write("\n\nInterrupted by user! Saving partial results...")
