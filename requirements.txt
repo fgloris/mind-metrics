@@ -2,3 +2,4 @@ torchmetrics
 lpips
 pyiqa
 openai-clip
+modelscope
