@@ -50,7 +50,8 @@ def get_musiq_spaq_path():
 def get_aes_path():
     aes_path = f'{CACHE_DIR}/vitl_model/sa_0_4_vit_l_14_linear.pth'
     if not os.path.isfile(aes_path):
-        wget_command = ['wget' ,'https://github.com/LAION-AI/aesthetic-predictor/blob/main/sa_0_4_vit_l_14_linear.pth?raw=true', '-O', vit_l_path]
+        os.makedirs(os.path.dirname(aes_path), exist_ok=True)
+        wget_command = ['wget' ,'https://github.com/LAION-AI/aesthetic-predictor/blob/main/sa_0_4_vit_l_14_linear.pth?raw=true', '-O', aes_path]
         subprocess.run(wget_command, check=True)
     return aes_path
 
@@ -60,6 +61,26 @@ def get_vitl_path():
         wget_command = ['wget' ,'https://openaipublic.azureedge.net/clip/models/b8cca3fd41ae0c99ba7e8951adf17d267cdb84cd88be6f7c2e0eca1737a03836/ViT-L-14.pt', '-P', os.path.dirname(vit_l_path)]
         subprocess.run(wget_command, check=True)
     return vit_l_path
+
+def ensure_all_models_downloaded():
+    """在并行前预先下载所有模型文件，避免多进程冲突"""
+    from tqdm import tqdm
+    tqdm.write("Pre-downloading model files...")
+
+    download_tasks = [
+        ("MUSIQ", get_musiq_spaq_path),
+        ("Aesthetic", get_aes_path),
+        ("ViT-L/CLIP", get_vitl_path),
+    ]
+
+    for name, download_fn in tqdm(download_tasks, desc="Downloading models"):
+        try:
+            path = download_fn()
+            tqdm.write(f"  {name}: {os.path.isfile(path)}")
+        except Exception as e:
+            tqdm.write(f"  {name} download failed: {e}")
+
+    tqdm.write("All models ready.\n")
 
 def transform_image(images):
     # 输入: images (Tensor) - 形状为 [B, C, H, W] 输出: 归一化后的 [B, C, 1280, 720] Tensor

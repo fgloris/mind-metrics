@@ -2,7 +2,7 @@ import lpips
 import torch
 from pyiqa.archs.musiq_arch import MUSIQ
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
-from utils import load_gt_video, load_sample_video, load_time_from_json, print_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, clip_transform_Image, extract_actions_from_json, crop_video_frames
+from utils import load_gt_video, load_sample_video, load_time_from_json, print_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, clip_transform_Image, extract_actions_from_json, crop_video_frames, ensure_all_models_downloaded
 from vipe_utils import extract_traj
 from dino_utils import load_dinov3_model, extract_dinov3_features
 import vipe_utils
@@ -277,7 +277,7 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root,
     imaging_model.training = False
 
     # 加载DINOv3模型
-    dino_model, dino_processor = load_dinov3_model(device)
+    # dino_model, dino_processor = load_dinov3_model(device)
 
     results = []
     pbar = tqdm(data_list, position=gpu_id, desc=f"GPU{gpu_id}")
@@ -314,8 +314,8 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root,
             result['visual_quality'] = vq
 
             # 计算dino_MSE指标
-            dino_mse = dino_mse_metric(sample_imgs, gt_imgs, dino_model, dino_processor, device, batch_size=process_batch_size)
-            result['dino'] = dino_mse
+            # dino_mse = dino_mse_metric(sample_imgs, gt_imgs, dino_model, dino_processor, device, batch_size=process_batch_size)
+            # result['dino'] = dino_mse
 
             # 清理内存
             del sample_imgs, gt_imgs
@@ -394,6 +394,9 @@ def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','
     for i, split in enumerate(data_splits):
         tqdm.write(f"  GPU{i}: {len(split)} videos")
     tqdm.write(f"{'='*60}\n")
+
+    # 在并行前预先下载所有模型文件，避免多进程冲突
+    ensure_all_models_downloaded()
 
     # 创建进程池并行处理
     try:
