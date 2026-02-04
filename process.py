@@ -293,83 +293,91 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root,
     # dino_model, dino_processor = load_dinov3_model(device)
 
     results = []
-    pbar = tqdm(data_list, position=gpu_id, desc=f"GPU{gpu_id}")
+    try:
+        pbar = tqdm(data_list, position=gpu_id, desc=f"GPU{gpu_id}", leave=True)
 
-    for data in pbar:
-        data_path = data['path']
-        gt_dir = os.path.join(gt_root, data['perspective'], 'test', data['test_type'])
-        test_dir = os.path.join(test_root, data['perspective'], data['test_type'])
-        if not os.path.exists(os.path.join(test_dir, data_path)):
-            continue
+        for data in pbar:
+            data_path = data['path']
+            gt_dir = os.path.join(gt_root, data['perspective'], 'test', data['test_type'])
+            test_dir = os.path.join(test_root, data['perspective'], data['test_type'])
+            if not os.path.exists(os.path.join(test_dir, data_path)):
+                continue
 
-        pbar.set_postfix({"file": data_path})
+            pbar.set_postfix({"file": data_path})
 
-        try:
-            mark_time, total_time = load_time_from_json(os.path.join(gt_dir, data_path, 'action.json'))
-            result = data
-            result['error'] = None
-            result['mark_time'] = mark_time
-            result['total_time'] = total_time
+            try:
+                mark_time, total_time = load_time_from_json(os.path.join(gt_dir, data_path, 'action.json'))
+                result = data
+                result['error'] = None
+                result['mark_time'] = mark_time
+                result['total_time'] = total_time
 
-            prefix = f"[GPU{gpu_id}] {data_path}"
-            tqdm.write(f"{prefix}: [1/4] Loading videos...")
+                prefix = f"[GPU{gpu_id}] {data_path}"
+                tqdm.write(f"{prefix}: [1/4] Loading videos...")
 
-            # 读入视频
-            gt_imgs = load_gt_video(os.path.join(gt_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
-            gt_imgs = gt_imgs.to(device)
+                # 读入视频
+                gt_imgs = load_gt_video(os.path.join(gt_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
+                gt_imgs = gt_imgs.to(device)
 
-            sample_imgs = load_sample_video(os.path.join(test_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
-            sample_imgs = sample_imgs.to(device)
+                sample_imgs = load_sample_video(os.path.join(test_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
+                sample_imgs = sample_imgs.to(device)
 
-            tqdm.write(f"{prefix}: [2/4] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
-            # 计算LCM指标
-            lcm = lcm_metric(sample_imgs, gt_imgs, requested_metrics, lpips_metric, ssim_metric, psnr_metric, process_batch_size)
-            result['lcm']= lcm
+                tqdm.write(f"{prefix}: [2/4] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
+                # 计算LCM指标
+                lcm = lcm_metric(sample_imgs, gt_imgs, requested_metrics, lpips_metric, ssim_metric, psnr_metric, process_batch_size)
+                result['lcm']= lcm
 
-            tqdm.write(f"{prefix}: [3/4] Computing visual quality metrics...")
-            # 计算image_quality指标
-            vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model)
-            result['visual_quality'] = vq
+                tqdm.write(f"{prefix}: [3/4] Computing visual quality metrics...")
+                # 计算image_quality指标
+                vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model)
+                result['visual_quality'] = vq
 
-            # 计算dino_MSE指标
-            # dino_mse = dino_mse_metric(sample_imgs, gt_imgs, dino_model, dino_processor, device, batch_size=process_batch_size)
-            # result['dino'] = dino_mse
+                # 计算dino_MSE指标
+                # dino_mse = dino_mse_metric(sample_imgs, gt_imgs, dino_model, dino_processor, device, batch_size=process_batch_size)
+                # result['dino'] = dino_mse
 
-            # 清理内存
-            del sample_imgs, gt_imgs
-            torch.cuda.empty_cache()
+                # 清理内存
+                del sample_imgs, gt_imgs
+                torch.cuda.empty_cache()
 
-            tqdm.write(f"{prefix}: [4/4] Computing action accuracy (ViPE)...")
-            # 计算action accuracy
-            actions = extract_actions_from_json(os.path.join(gt_dir, data_path, 'action.json'), mark_time, 97)
-            action = action_accuracy_metric(
-                os.path.join(test_dir, data_path, 'video.mp4'),
-                os.path.join(gt_dir, data_path, 'video.mp4'),
-                mark_time,
-                actions,
-                max_frames = video_max_time,
-                gt_data_dir = os.path.join(gt_dir, data_path),
-                verbose_prefix=f"  {prefix}",
-                gpu_id=gpu_id
-            )
-            if action is not None:
-                result['action'] = action
-            tqdm.write(f"{prefix}: Done")
+                tqdm.write(f"{prefix}: [4/4] Computing action accuracy (ViPE)...")
+                # 计算action accuracy
+                actions = extract_actions_from_json(os.path.join(gt_dir, data_path, 'action.json'), mark_time, 97)
+                action = action_accuracy_metric(
+                    os.path.join(test_dir, data_path, 'video.mp4'),
+                    os.path.join(gt_dir, data_path, 'video.mp4'),
+                    mark_time,
+                    actions,
+                    max_frames = video_max_time,
+                    gt_data_dir = os.path.join(gt_dir, data_path),
+                    verbose_prefix=f"  {prefix}",
+                    gpu_id=gpu_id
+                )
+                if action is not None:
+                    result['action'] = action
+                tqdm.write(f"{prefix}: Done")
 
-        except KeyboardInterrupt:
-            tqdm.write(f"\nGPU{gpu_id}: Interrupted by user. Returning partial results...")
-            raise
-        except Exception as e:
-            tqdm.write(f"Error processing {data_path} on GPU{gpu_id}: {e}")
-            result['error'] = str(e)
+            except KeyboardInterrupt:
+                tqdm.write(f"\nGPU{gpu_id}: Interrupted by user. Returning partial results...")
+                raise
+            except Exception as e:
+                tqdm.write(f"Error processing {data_path} on GPU{gpu_id}: {e}")
+                result['error'] = str(e)
 
-        results.append(result)
+            results.append(result)
 
-        # 写入中间结果文件
-        if gpu_result_file is not None:
-            with open(gpu_result_file, 'w') as f:
-                json.dump(results, f, indent=2)
-        #break
+            # 写入中间结果文件
+            if gpu_result_file is not None:
+                with open(gpu_result_file, 'w') as f:
+                    json.dump(results, f, indent=2)
+            #break
+
+    finally:
+        # 清理模型和显存
+        tqdm.write(f"GPU{gpu_id}: Cleaning up...")
+        del lpips_metric, ssim_metric, psnr_metric
+        del imaging_model, aesthetic_model, clip_model
+        torch.cuda.empty_cache()
 
     return results
 
