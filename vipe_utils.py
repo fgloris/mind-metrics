@@ -157,13 +157,17 @@ def vipe_to_colmap(out_dir: Path, vipe_repo: Path) -> None:
     run_cmd(["python", str(script), str(out_dir)], cwd=vipe_repo, quiet=True)
 
 
-def parse_colmap_images_txt(images_txt: Path) -> np.ndarray:
+def parse_colmap_images_txt(images_txt: Path) -> Tuple[np.ndarray, int]:
     """
     Parse COLMAP images.txt -> camera->world poses (T_wc) (N,4,4).
     COLMAP stores world->cam: qvec(w,x,y,z), tvec.
     Convert:
       R_wc = R_cw^T
       C_w  = -R_wc t_cw
+
+    Returns:
+        poses: (N, 4, 4) array of camera poses
+        num_images: number of images parsed
     """
     lines = images_txt.read_text(encoding="utf-8", errors="ignore").splitlines()
     entries: List[Tuple[str, np.ndarray]] = []
@@ -193,9 +197,10 @@ def parse_colmap_images_txt(images_txt: Path) -> np.ndarray:
         raise RuntimeError(f"No valid entries in {images_txt}")
 
     entries.sort(key=lambda x: x[0])
-    return np.stack([e[1] for e in entries], axis=0)
+    poses = np.stack([e[1] for e in entries], axis=0)
+    return poses, len(entries)
 
-def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default", gt_cache_path: Path = None) -> np.ndarray:
+def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default", gt_cache_path: Path = None, expected_frames: int = None) -> np.ndarray:
     """
     Extract camera trajectory from video using ViPE.
 
@@ -204,6 +209,7 @@ def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default", gt_cac
         cache_dir: Directory for caching ViPE outputs
         pipeline: ViPE pipeline to use
         gt_cache_path: Optional path to cache/load images.txt for GT videos (e.g., video directory)
+        expected_frames: Expected number of frames, used to validate cache
 
     Returns:
         Array of camera poses (N, 4, 4)
@@ -217,8 +223,12 @@ def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default", gt_cac
         cached_images_txt = gt_cache_path / "images.txt"
 
         if cached_images_txt.exists():
-            tqdm.write(f"Using cached GT trajectory: {cached_images_txt}")
-            return parse_colmap_images_txt(cached_images_txt)
+            poses, num_images = parse_colmap_images_txt(cached_images_txt)
+            if expected_frames is not None and num_images != expected_frames:
+                tqdm.write(f"Cache validation failed: expected {expected_frames} frames, got {num_images}. Re-running ViPE...")
+            else:
+                tqdm.write(f"Using cached GT trajectory: {cached_images_txt}")
+                return poses
 
     # Run ViPE inference (quietly)
     key = f"{video.name}-{_sha1(str(video))}"
@@ -244,7 +254,8 @@ def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default", gt_cac
         shutil.copy2(images_txt, cached_images_txt)
         tqdm.write(f"Cached GT trajectory to: {cached_images_txt}")
 
-    return parse_colmap_images_txt(images_txt)
+    poses, _ = parse_colmap_images_txt(images_txt)
+    return poses
 
 def bucket_for_action(a: str) -> str:
     a = a.lower()

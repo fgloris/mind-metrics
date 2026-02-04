@@ -2,7 +2,7 @@ import lpips
 import torch
 from pyiqa.archs.musiq_arch import MUSIQ
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
-from utils import load_gt_video, load_sample_video, load_time_from_json, print_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, clip_transform_Image, extract_actions_from_json, crop_video_frames, ensure_all_models_downloaded
+from utils import load_gt_video, load_sample_video, load_time_from_json, print_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, clip_transform_Image, extract_actions_from_json, crop_video_frames, ensure_all_models_downloaded, CACHE_DIR
 from vipe_utils import extract_traj
 from dino_utils import load_dinov3_model, extract_dinov3_features
 import vipe_utils
@@ -135,7 +135,7 @@ def dino_mse_metric(pred_frames, gt_frames, dino_model=None, dino_processor=None
 
     return result_dict
 
-def action_accuracy_metric(pred_vid_path, gt_vid_path, mark_time, actions, cache_dir = Path("./cache_vipe"),
+def action_accuracy_metric(pred_vid_path, gt_vid_path, mark_time, actions, cache_dir = None,
                            delta = 1, max_rot_deg = 179.0, max_trans = 1e9, min_valid_steps = 8, per_action = True, max_frames = 200, gt_data_dir = None):
     """
     Compute action accuracy metrics for a single video pair.
@@ -157,6 +157,9 @@ def action_accuracy_metric(pred_vid_path, gt_vid_path, mark_time, actions, cache
         Dictionary with action accuracy metrics in JSON format, or None if failed
     """
 
+    if cache_dir is None:
+        cache_dir = Path(CACHE_DIR) / "vipe"
+
     # Crop videos to max_frames if specified
     tqdm.write(f"Cropping videos to {max_frames} frames...")
     pred_vid_path = crop_video_frames(pred_vid_path, max_frames, cache_dir)
@@ -165,7 +168,8 @@ def action_accuracy_metric(pred_vid_path, gt_vid_path, mark_time, actions, cache
     # Extract GT trajectory with caching
     gt_T = extract_traj(
         gt_vid_path, cache_dir,
-        gt_cache_path=gt_data_dir
+        gt_cache_path=gt_data_dir,
+        expected_frames=max_frames
     )
     # Extract generated trajectory (no caching)
     gen_T = extract_traj(
@@ -236,7 +240,7 @@ def action_accuracy_metric(pred_vid_path, gt_vid_path, mark_time, actions, cache
     return result
 
 def compute_metrics_single_gpu(data_list, gt_root, test_root,
-                               requested_metrics, video_max_time, process_batch_size, device, gpu_id):
+                               requested_metrics, video_max_time, process_batch_size, device, gpu_id, gpu_result_file=None):
     import warnings
     # 在子进程中设置warnings过滤
     warnings.filterwarnings("ignore", message=".*pretrained.*")
@@ -340,9 +344,14 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root,
         except Exception as e:
             tqdm.write(f"Error processing {data_path} on GPU{gpu_id}: {e}")
             result['error'] = str(e)
-        
+
         results.append(result)
-        break
+
+        # 写入中间结果文件
+        if gpu_result_file is not None:
+            with open(gpu_result_file, 'w') as f:
+                json.dump(results, f, indent=2)
+        #break
 
     return results
 
@@ -398,12 +407,24 @@ def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','
     # 在并行前预先下载所有模型文件，避免多进程冲突
     ensure_all_models_downloaded()
 
+    # 为每个GPU创建结果文件路径
+    cache_dir = Path(CACHE_DIR)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    gpu_result_dir = cache_dir / "gpu_results"
+    gpu_result_dir.mkdir(parents=True, exist_ok=True)
+
+    # 清理旧的结果文件
+    for f in gpu_result_dir.glob("gpu_*.json"):
+        f.unlink()
+
+    gpu_result_files = [str(gpu_result_dir / f"gpu_{i}.json") for i in range(num_gpus)]
+
     # 创建进程池并行处理
     try:
         with mp.Pool(processes=num_gpus) as pool:
             worker_args = [
                 (data_splits[i], gt_root, test_root,
-                    requested_metrics, video_max_time, process_batch_size, f'cuda:{i}', i)
+                    requested_metrics, video_max_time, process_batch_size, f'cuda:{i}', i, gpu_result_files[i])
                 for i in range(num_gpus)
             ]
 
@@ -412,9 +433,17 @@ def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','
                 result_dict['data'] += result
 
     except KeyboardInterrupt:
-        tqdm.write("\n\nInterrupted by user! Saving partial results...")
+        tqdm.write("\n\nInterrupted by user! Merging partial results from GPU files...")
         pool.terminate()
         pool.join()
+
+        # 从GPU结果文件合并数据
+        for gpu_file in gpu_result_files:
+            if Path(gpu_file).exists():
+                with open(gpu_file, 'r') as f:
+                    gpu_results = json.load(f)
+                    result_dict['data'] += gpu_results
+                tqdm.write(f"  Merged {len(gpu_results)} results from {Path(gpu_file).name}")
         raise
 
     return result_dict

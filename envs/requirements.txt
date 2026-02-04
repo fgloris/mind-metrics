@@ -121,7 +121,8 @@ ninja==1.11.1.4
     # via -r envs/requirements.in
 nodeenv==1.9.1
     # via viser
-numpy==2.1.2
+#numpy==2.1.2
+numpy<2.0
     # via
     #   -r envs/requirements.in
     #   contourpy
