@@ -248,31 +248,14 @@ def action_accuracy_metric(pred_vid_path, gt_vid_path, mark_time, actions, cache
             
     return result
 
-def compute_metrics_single_gpu(data_list, gt_root, test_root,
-                               requested_metrics, video_max_time, process_batch_size, device, gpu_id, gpu_result_file=None):
+def compute_metrics_single_gpu(task_queue, result_queue, gt_root, test_root,
+                               requested_metrics, video_max_time, process_batch_size, device, gpu_id,
+                               max_retries=3):
     import warnings
-    # 在子进程中设置warnings过滤
     warnings.filterwarnings("ignore", message=".*pretrained.*")
     warnings.filterwarnings("ignore", message=".*Weights.*")
     warnings.filterwarnings("ignore", message=".*video.*deprecated.*")
-    """
-    在单个GPU上计算指定数据列表的metrics
 
-    Args:
-        data_list: 要处理的数据文件夹名称列表
-        gt_root: ground truth数据根目录
-        test_root: 测试数据根目录
-        perspective: '1st_data' or '3rd_data'
-        test_type: 'mem_test' or 'action_space_test'
-        requested_metrics: 要计算的指标列表
-        video_max_time: 视频最大帧数
-        process_batch_size: 批处理大小
-        device: GPU设备ID
-        gpu_id: GPU编号(用于显示)
-
-    Returns:
-        字典，包含所有处理的数据的结果
-    """
     # 初始化模型
     lpips_metric = lpips.LPIPS(net='alex', spatial=False).to(device)
     ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0, reduction='none').to(device)
@@ -289,120 +272,107 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root,
     imaging_model.to(device)
     imaging_model.training = False
 
-    # 加载DINOv3模型
-    # dino_model, dino_processor = load_dinov3_model(device)
+    completed_count = 0
+    retry_count = {}
 
-    results = []
+    tqdm.write(f"GPU{gpu_id}: Worker started, waiting for tasks...")
+
     try:
-        pbar = tqdm(data_list, position=gpu_id, desc=f"GPU{gpu_id}", leave=True)
+        while True:
+            task = task_queue.get()
 
-        for data in pbar:
-            data_path = data['path']
-            gt_dir = os.path.join(gt_root, data['perspective'], 'test', data['test_type'])
-            test_dir = os.path.join(test_root, data['perspective'], data['test_type'])
-            if not os.path.exists(os.path.join(test_dir, data_path)):
-                continue
+            # None是哨兵值，表示结束
+            if task is None:
+                task_queue.put(None)
+                break
 
-            pbar.set_postfix({"file": data_path})
+            task_id = f"{task['perspective']}/{task['test_type']}/{task['path']}"
+            retry_count[task_id] = retry_count.get(task_id, 0) + 1
 
             try:
+                data_path = task['path']
+                gt_dir = os.path.join(gt_root, task['perspective'], 'test', task['test_type'])
+                test_dir = os.path.join(test_root, task['perspective'], task['test_type'])
+
+                if not os.path.exists(os.path.join(test_dir, data_path)):
+                    result = task.copy()
+                    result['error'] = 'Test video not found'
+                    result_queue.put(result)
+                    continue
+
+                prefix = f"[GPU{gpu_id}] {data_path}"
+                tqdm.write(f"{prefix}: Processing (attempt {retry_count[task_id]}/{max_retries})...")
+
                 mark_time, total_time = load_time_from_json(os.path.join(gt_dir, data_path, 'action.json'))
-                result = data
+                result = task.copy()
                 result['error'] = None
                 result['mark_time'] = mark_time
                 result['total_time'] = total_time
 
-                prefix = f"[GPU{gpu_id}] {data_path}"
                 tqdm.write(f"{prefix}: [1/4] Loading videos...")
-
-                # 读入视频
                 gt_imgs = load_gt_video(os.path.join(gt_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
                 gt_imgs = gt_imgs.to(device)
-
                 sample_imgs = load_sample_video(os.path.join(test_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
                 sample_imgs = sample_imgs.to(device)
 
-                tqdm.write(f"{prefix}: [2/4] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
-                # 计算LCM指标
+                tqdm.write(f"{prefix}: [2/4] Computing LCM metrics...")
                 lcm = lcm_metric(sample_imgs, gt_imgs, requested_metrics, lpips_metric, ssim_metric, psnr_metric, process_batch_size)
-                result['lcm']= lcm
+                result['lcm'] = lcm
 
                 tqdm.write(f"{prefix}: [3/4] Computing visual quality metrics...")
-                # 计算image_quality指标
                 vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model)
                 result['visual_quality'] = vq
 
-                # 计算dino_MSE指标
-                # dino_mse = dino_mse_metric(sample_imgs, gt_imgs, dino_model, dino_processor, device, batch_size=process_batch_size)
-                # result['dino'] = dino_mse
-
-                # 清理内存
                 del sample_imgs, gt_imgs
                 torch.cuda.empty_cache()
 
-                tqdm.write(f"{prefix}: [4/4] Computing action accuracy (ViPE)...")
-                # 计算action accuracy
+                tqdm.write(f"{prefix}: [4/4] Computing action accuracy...")
                 actions = extract_actions_from_json(os.path.join(gt_dir, data_path, 'action.json'), mark_time, 97)
                 action = action_accuracy_metric(
                     os.path.join(test_dir, data_path, 'video.mp4'),
                     os.path.join(gt_dir, data_path, 'video.mp4'),
-                    mark_time,
-                    actions,
-                    max_frames = 97,
-                    gt_data_dir = os.path.join(gt_dir, data_path),
+                    mark_time, actions,
+                    max_frames=97,
+                    gt_data_dir=os.path.join(gt_dir, data_path),
                     verbose_prefix=f"  {prefix}",
                     gpu_id=gpu_id
                 )
                 if action is not None:
                     result['action'] = action
-                tqdm.write(f"{prefix}: Done")
+
+                result_queue.put(result)
+                completed_count += 1
+                tqdm.write(f"{prefix}: Done (GPU{gpu_id} completed: {completed_count})")
 
             except KeyboardInterrupt:
-                tqdm.write(f"\nGPU{gpu_id}: Interrupted by user. Returning partial results...")
+                tqdm.write(f"\nGPU{gpu_id}: Interrupted, putting task back to queue...")
+                task_queue.put(task)
                 raise
             except Exception as e:
-                tqdm.write(f"Error processing {data_path} on GPU{gpu_id}: {e}")
-                result['error'] = str(e)
+                import traceback
+                error_msg = str(e)
+                tqdm.write(f"Error processing {task_id} on GPU{gpu_id}: {error_msg}")
 
-            results.append(result)
-
-            # 写入中间结果文件
-            if gpu_result_file is not None:
-                with open(gpu_result_file, 'w') as f:
-                    json.dump(results, f, indent=2)
-            #break
+                if retry_count[task_id] < max_retries:
+                    tqdm.write(f"  Retrying ({retry_count[task_id]}/{max_retries})...")
+                    task_queue.put(task)
+                else:
+                    tqdm.write(f"  Max retries reached, marking as failed.")
+                    result = task.copy()
+                    result['error'] = error_msg
+                    result_queue.put(result)
 
     finally:
-        # 清理模型和显存
-        tqdm.write(f"GPU{gpu_id}: Cleaning up...")
+        tqdm.write(f"GPU{gpu_id}: Cleaning up (completed {completed_count} tasks)...")
         del lpips_metric, ssim_metric, psnr_metric
         del imaging_model, aesthetic_model, clip_model
         torch.cuda.empty_cache()
 
-    return results
-
 def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','lpips'],
-                   video_max_time=100, process_batch_size=10, num_gpus=1):
-    """
-    计算视频metrics，支持多GPU并行（统一架构，单GPU也使用multiprocessing）
+                   video_max_time=100, process_batch_size=10, num_gpus=1, max_retries=3):
+    result_dict = {'data': [], 'video_max_time': video_max_time}
 
-    Args:
-        gt_root: ground truth数据根目录
-        test_root: 测试数据根目录
-        requested_metrics: 要计算的指标列表
-        video_max_time: 视频最大帧数
-        process_batch_size: 批处理大小
-        num_gpus: 使用的GPU数量（>=1）
-
-    Returns:
-        包含所有结果的字典
-    """
-    result_dict = {'data':[], 'video_max_time':video_max_time}
-
-    # 统一使用multiprocessing架构
     mp.set_start_method('spawn', force=True)
-
-    # 设置tqdm的全局锁，让多进程共享
     tqdm.set_lock(mp.RLock())
 
     all_data = []
@@ -410,70 +380,72 @@ def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','
         for test_type in ['mem_test', 'action_space_test']:
             gt_dir = os.path.join(gt_root, perspective, 'test', test_type)
             test_dir = os.path.join(test_root, perspective, test_type)
-
-            # 获取所有数据文件夹
-            all_data += [{'path': d, 'perspective': perspective, 'test_type': test_type} 
+            all_data += [{'path': d, 'perspective': perspective, 'test_type': test_type}
                 for d in os.listdir(gt_dir) if os.path.exists(os.path.join(test_dir, d))]
 
     if len(all_data) == 0:
-        tqdm.write(f"No data found!")
-        return
-
-    # 将数据分配到各个GPU
-    data_per_gpu = len(all_data) // num_gpus
-    data_splits = []
-    for i in range(num_gpus):
-        start_idx = i * data_per_gpu
-        end_idx = start_idx + data_per_gpu if i < num_gpus - 1 else len(all_data)
-        data_splits.append(all_data[start_idx:end_idx])
+        tqdm.write("No data found!")
+        return result_dict
 
     tqdm.write(f"\n{'='*60}")
     tqdm.write(f"Total data: {len(all_data)}, Using {num_gpus} GPU(s)")
-    for i, split in enumerate(data_splits):
-        tqdm.write(f"  GPU{i}: {len(split)} videos")
+    tqdm.write(f"Architecture: Task queue with retry (max {max_retries} retries)")
     tqdm.write(f"{'='*60}\n")
 
-    # 在并行前预先下载所有模型文件，避免多进程冲突
     ensure_all_models_downloaded()
 
-    # 为每个GPU创建结果文件路径
-    cache_dir = Path(CACHE_DIR)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    gpu_result_dir = cache_dir / "gpu_results"
-    gpu_result_dir.mkdir(parents=True, exist_ok=True)
+    task_queue = mp.Queue()
+    result_queue = mp.Queue()
 
-    # 清理旧的结果文件
-    for f in gpu_result_dir.glob("gpu_*.json"):
-        f.unlink()
+    for task in all_data:
+        task_queue.put(task)
+    tqdm.write(f"Enqueued {len(all_data)} tasks")
 
-    gpu_result_files = [str(gpu_result_dir / f"gpu_{i}.json") for i in range(num_gpus)]
+    processes = []
+    for i in range(num_gpus):
+        p = mp.Process(
+            target=compute_metrics_single_gpu,
+            args=(task_queue, result_queue, gt_root, test_root,
+                  requested_metrics, video_max_time, process_batch_size, f'cuda:{i}', i, max_retries)
+        )
+        p.start()
+        processes.append(p)
 
-    # 创建进程池并行处理
+    pbar = tqdm(total=len(all_data), desc="Progress", position=0)
+    completed = 0
+    failed = 0
+
     try:
-        with mp.Pool(processes=num_gpus) as pool:
-            worker_args = [
-                (data_splits[i], gt_root, test_root,
-                    requested_metrics, video_max_time, process_batch_size, f'cuda:{i}', i, gpu_result_files[i])
-                for i in range(num_gpus)
-            ]
-
-            result_list = pool.starmap(compute_metrics_single_gpu, worker_args)
-            for result in result_list:
-                result_dict['data'] += result
+        while completed + failed < len(all_data):
+            result = result_queue.get()
+            result_dict['data'].append(result)
+            if result.get('error'):
+                failed += 1
+            else:
+                completed += 1
+            pbar.update(1)
+            pbar.set_postfix({"completed": completed, "failed": failed})
 
     except KeyboardInterrupt:
-        tqdm.write("\n\nInterrupted by user! Merging partial results from GPU files...")
-        pool.terminate()
-        pool.join()
+        tqdm.write("\n\nInterrupted by user! Stopping workers...")
+    finally:
+        task_queue.put(None)
+        for p in processes:
+            p.join(timeout=5)
+            if p.is_alive():
+                p.terminate()
+                p.join()
 
-        # 从GPU结果文件合并数据
-        for gpu_file in gpu_result_files:
-            if Path(gpu_file).exists():
-                with open(gpu_file, 'r') as f:
-                    gpu_results = json.load(f)
-                    result_dict['data'] += gpu_results
-                tqdm.write(f"  Merged {len(gpu_results)} results from {Path(gpu_file).name}")
-        return result_dict
+        while not result_queue.empty():
+            result = result_queue.get()
+            result_dict['data'].append(result)
+            if result.get('error'):
+                failed += 1
+            else:
+                completed += 1
+
+        pbar.close()
+        tqdm.write(f"\nCompleted: {completed}, Failed: {failed}")
 
     return result_dict
 
@@ -489,6 +461,7 @@ if __name__ == '__main__':
                        help='Test data root directory')
     parser.add_argument('--num_gpus', type=int, default=1, help='Number of GPUs to use (default: 1)')
     parser.add_argument('--video_max_time', type=int, default=100, help='Maximum video frames (default: 100)')
+    parser.add_argument('--max_retries', type=int, default=3, help='Max retries per failed task (default: 3)')
     parser.add_argument('--output', type=str, default=None, help='Output JSON file path')
 
     args = parser.parse_args()
@@ -515,7 +488,8 @@ if __name__ == '__main__':
             args.gt_root,
             args.test_root,
             video_max_time=args.video_max_time,
-            num_gpus=args.num_gpus
+            num_gpus=args.num_gpus,
+            max_retries=args.max_retries
         )
     except KeyboardInterrupt:
         tqdm.write("\n\n" + "="*60)
