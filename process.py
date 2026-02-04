@@ -348,7 +348,7 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root,
                     os.path.join(gt_dir, data_path, 'video.mp4'),
                     mark_time,
                     actions,
-                    max_frames = video_max_time,
+                    max_frames = 97,
                     gt_data_dir = os.path.join(gt_dir, data_path),
                     verbose_prefix=f"  {prefix}",
                     gpu_id=gpu_id
@@ -532,7 +532,7 @@ if __name__ == '__main__':
             tqdm.write(f"\nResults saved to: {output_path}")
 
             # 打印统计信息
-            tqdm.write(f"{len(video_results)} videos are processed")
+            tqdm.write(f"{len(video_results['data'])} videos are processed")
         else:
             tqdm.write("\nNo results to save.")
     
