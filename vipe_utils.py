@@ -116,7 +116,7 @@ def _sha1(s: str) -> str:
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:12]
 
 
-def run_cmd(cmd: List[str], cwd: Optional[Path] = None, quiet: bool = False) -> None:
+def run_cmd(cmd: List[str], cwd: Optional[Path] = None, quiet: bool = False, env: Optional[Dict[str, str]] = None) -> None:
     """
     Run a shell command.
 
@@ -124,18 +124,23 @@ def run_cmd(cmd: List[str], cwd: Optional[Path] = None, quiet: bool = False) -> 
         cmd: Command and arguments as a list
         cwd: Working directory to run command in
         quiet: If True, suppress stdout output (stderr is always captured)
+        env: Environment variables to set (e.g., CUDA_VISIBLE_DEVICES)
     """
     if not quiet:
         tqdm.write(f"Running command: {' '.join(cmd)}")
 
+    # Merge with existing environment
+    proc_env = os.environ.copy()
+    if env:
+        proc_env.update(env)
+
     if quiet:
-        # Suppress stdout but capture stderr for error reporting
         p = subprocess.run(cmd, cwd=str(cwd) if cwd else None,
-                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                          text=True, env=proc_env)
     else:
-        # Capture stderr for error reporting while showing stdout
         p = subprocess.run(cmd, cwd=str(cwd) if cwd else None,
-                          stderr=subprocess.PIPE, text=True)
+                          stderr=subprocess.PIPE, text=True, env=proc_env)
 
     if p.returncode != 0:
         error_msg = f"Command failed: {' '.join(cmd)}"
@@ -151,10 +156,10 @@ def find_images_txt(root: Path) -> Optional[Path]:
                 return (Path(dp) / fn)
 
 
-def vipe_to_colmap(out_dir: Path, vipe_repo: Path) -> None:
+def vipe_to_colmap(out_dir: Path, vipe_repo: Path, gpu_id: int = 0) -> None:
     vipe_repo = vipe_repo.resolve()
     script = Path("scripts/vipe_to_colmap.py")
-    run_cmd(["python", str(script), str(out_dir)], cwd=vipe_repo, quiet=True)
+    run_cmd(["python", str(script), str(out_dir)], cwd=vipe_repo, quiet=True, env={"CUDA_VISIBLE_DEVICES": str(gpu_id)})
 
 
 def parse_colmap_images_txt(images_txt: Path) -> Tuple[np.ndarray, int]:
@@ -200,7 +205,8 @@ def parse_colmap_images_txt(images_txt: Path) -> Tuple[np.ndarray, int]:
     poses = np.stack([e[1] for e in entries], axis=0)
     return poses, len(entries)
 
-def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default", gt_cache_path: Path = None, expected_frames: int = None) -> np.ndarray:
+def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default", gt_cache_path: Path = None,
+                 expected_frames: int = None, verbose_prefix: str = "", gpu_id: int = 0) -> np.ndarray:
     """
     Extract camera trajectory from video using ViPE.
 
@@ -210,6 +216,8 @@ def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default", gt_cac
         pipeline: ViPE pipeline to use
         gt_cache_path: Optional path to cache/load images.txt for GT videos (e.g., video directory)
         expected_frames: Expected number of frames, used to validate cache
+        verbose_prefix: 日志前缀
+        gpu_id: GPU ID to use (default: 0)
 
     Returns:
         Array of camera poses (N, 4, 4)
@@ -225,19 +233,21 @@ def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default", gt_cac
         if cached_images_txt.exists():
             poses, num_images = parse_colmap_images_txt(cached_images_txt)
             if expected_frames is not None and num_images != expected_frames:
-                tqdm.write(f"Cache validation failed: expected {expected_frames} frames, got {num_images}. Re-running ViPE...")
+                tqdm.write(f"{verbose_prefix}  Cache validation failed: expected {expected_frames} frames, got {num_images}. Re-running ViPE...")
             else:
-                tqdm.write(f"Using cached GT trajectory: {cached_images_txt}")
+                tqdm.write(f"{verbose_prefix}  Using cached GT trajectory: {cached_images_txt.name}")
                 return poses
 
     # Run ViPE inference (quietly)
     key = f"{video.name}-{_sha1(str(video))}"
     out_dir = cache_dir / "vipe" / key
     out_dir.mkdir(parents=True, exist_ok=True)
-    tqdm.write(f"Running ViPE inference on {video.name}...")
-    run_cmd(["vipe", "infer", str(video), "--output", str(out_dir), "--pipeline", pipeline], quiet=True)
+    tqdm.write(f"{verbose_prefix}  Running ViPE inference: {video.name} -> {out_dir.name}...")
+    run_cmd(["vipe", "infer", str(video), "--output", str(out_dir), "--pipeline", pipeline],
+            quiet=True, env={"CUDA_VISIBLE_DEVICES": str(gpu_id)})
 
-    vipe_to_colmap(out_dir, Path("vipe"))
+    tqdm.write(f"{verbose_prefix}  Converting to COLMAP format...")
+    vipe_to_colmap(out_dir, Path("vipe"), gpu_id=gpu_id)
     images_txt = find_images_txt(out_dir.parent / f"{out_dir.name}_colmap")
 
     if images_txt is None:
@@ -246,15 +256,18 @@ def extract_traj(video: Path, cache_dir: Path, pipeline: str = "default", gt_cac
             f"Tip: pass --try_vipe_to_colmap and --vipe_repo /path/to/vipe."
         )
 
+    tqdm.write(f"{verbose_prefix}  Parsing poses from {images_txt.name}...")
+
     # Cache images.txt for GT videos
     if gt_cache_path is not None:
         gt_cache_path.mkdir(parents=True, exist_ok=True)
         cached_images_txt = gt_cache_path / "images.txt"
         import shutil
         shutil.copy2(images_txt, cached_images_txt)
-        tqdm.write(f"Cached GT trajectory to: {cached_images_txt}")
+        tqdm.write(f"{verbose_prefix}  Cached GT trajectory to: {cached_images_txt.name}")
 
-    poses, _ = parse_colmap_images_txt(images_txt)
+    poses, num_images = parse_colmap_images_txt(images_txt)
+    tqdm.write(f"{verbose_prefix}  Extracted {num_images} poses")
     return poses
 
 def bucket_for_action(a: str) -> str:

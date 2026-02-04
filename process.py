@@ -136,7 +136,7 @@ def dino_mse_metric(pred_frames, gt_frames, dino_model=None, dino_processor=None
     return result_dict
 
 def action_accuracy_metric(pred_vid_path, gt_vid_path, mark_time, actions, cache_dir = None,
-                           delta = 1, max_rot_deg = 179.0, max_trans = 1e9, min_valid_steps = 8, per_action = True, max_frames = 200, gt_data_dir = None):
+                           delta = 1, max_rot_deg = 179.0, max_trans = 1e9, min_valid_steps = 8, per_action = True, max_frames = 200, gt_data_dir = None, verbose_prefix="", gpu_id: int = 0):
     """
     Compute action accuracy metrics for a single video pair.
 
@@ -152,6 +152,8 @@ def action_accuracy_metric(pred_vid_path, gt_vid_path, mark_time, actions, cache
         per_action: Whether to include per-action breakdown
         max_frames: Maximum number of frames to use from videos (None = use all frames)
         gt_data_dir: GT data directory (for caching images.txt)
+        verbose_prefix: 前缀标识，用于日志输出
+        gpu_id: GPU ID for ViPE inference (default: 0)
 
     Returns:
         Dictionary with action accuracy metrics in JSON format, or None if failed
@@ -160,20 +162,24 @@ def action_accuracy_metric(pred_vid_path, gt_vid_path, mark_time, actions, cache
     if cache_dir is None:
         cache_dir = Path(CACHE_DIR) / "vipe"
 
-    # Crop videos to max_frames if specified
-    tqdm.write(f"Cropping videos to {max_frames} frames...")
+    tqdm.write(f"{verbose_prefix}[1/5] Cropping videos to {max_frames} frames...")
     pred_vid_path = crop_video_frames(pred_vid_path, max_frames, cache_dir)
     gt_vid_path = crop_video_frames(gt_vid_path, max_frames, cache_dir, start_frame=mark_time)
 
-    # Extract GT trajectory with caching
+    tqdm.write(f"{verbose_prefix}[2/5] Extracting GT trajectory...")
     gt_T = extract_traj(
         gt_vid_path, cache_dir,
         gt_cache_path=gt_data_dir,
-        expected_frames=max_frames
+        expected_frames=max_frames,
+        verbose_prefix=verbose_prefix,
+        gpu_id=gpu_id
     )
-    # Extract generated trajectory (no caching)
+
+    tqdm.write(f"{verbose_prefix}[3/5] Extracting generated trajectory...")
     gen_T = extract_traj(
         pred_vid_path, cache_dir,
+        verbose_prefix=verbose_prefix,
+        gpu_id=gpu_id
     )
 
     # Align lengths to actions (+delta poses)
@@ -185,6 +191,7 @@ def action_accuracy_metric(pred_vid_path, gt_vid_path, mark_time, actions, cache
     gen_use = gen_T[:(n_steps + delta)]
     actions = actions[:n_steps]
 
+    tqdm.write(f"{verbose_prefix}[4/5] Aligning trajectories (Sim3)...")
     # Sim(3) align gen->gt (positions)
     s, R, t = vipe_utils.umeyama_sim3(gen_use[:, :3, 3], gt_use[:, :3, 3])
     gen_aligned = vipe_utils.apply_sim3_to_poses(gen_use, s, R, t)
@@ -206,6 +213,8 @@ def action_accuracy_metric(pred_vid_path, gt_vid_path, mark_time, actions, cache
     if te.size < min_valid_steps:
         tqdm.write(f"Too few valid RPE samples for data {pred_vid_path}: te.size={te.size}, min_valid_steps={min_valid_steps}")
         return None
+
+    tqdm.write(f"{verbose_prefix}[5/5] Computing metrics ({te.size} valid samples)...")
 
     # Helper function to compute statistics
     def compute_stats(te_arr, re_arr):
@@ -302,6 +311,9 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root,
             result['mark_time'] = mark_time
             result['total_time'] = total_time
 
+            prefix = f"[GPU{gpu_id}] {data_path}"
+            tqdm.write(f"{prefix}: [1/4] Loading videos...")
+
             # 读入视频
             gt_imgs = load_gt_video(os.path.join(gt_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
             gt_imgs = gt_imgs.to(device)
@@ -309,10 +321,12 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root,
             sample_imgs = load_sample_video(os.path.join(test_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
             sample_imgs = sample_imgs.to(device)
 
+            tqdm.write(f"{prefix}: [2/4] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
             # 计算LCM指标
             lcm = lcm_metric(sample_imgs, gt_imgs, requested_metrics, lpips_metric, ssim_metric, psnr_metric, process_batch_size)
             result['lcm']= lcm
 
+            tqdm.write(f"{prefix}: [3/4] Computing visual quality metrics...")
             # 计算image_quality指标
             vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model)
             result['visual_quality'] = vq
@@ -325,18 +339,22 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root,
             del sample_imgs, gt_imgs
             torch.cuda.empty_cache()
 
+            tqdm.write(f"{prefix}: [4/4] Computing action accuracy (ViPE)...")
             # 计算action accuracy
-            actions = extract_actions_from_json(os.path.join(gt_dir, data_path, 'action.json'), mark_time, video_max_time)
+            actions = extract_actions_from_json(os.path.join(gt_dir, data_path, 'action.json'), mark_time, 97)
             action = action_accuracy_metric(
                 os.path.join(test_dir, data_path, 'video.mp4'),
                 os.path.join(gt_dir, data_path, 'video.mp4'),
                 mark_time,
                 actions,
                 max_frames = video_max_time,
-                gt_data_dir = os.path.join(gt_dir, data_path)
+                gt_data_dir = os.path.join(gt_dir, data_path),
+                verbose_prefix=f"  {prefix}",
+                gpu_id=gpu_id
             )
             if action is not None:
                 result['action'] = action
+            tqdm.write(f"{prefix}: Done")
 
         except KeyboardInterrupt:
             tqdm.write(f"\nGPU{gpu_id}: Interrupted by user. Returning partial results...")
@@ -375,6 +393,9 @@ def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','
 
     # 统一使用multiprocessing架构
     mp.set_start_method('spawn', force=True)
+
+    # 设置tqdm的全局锁，让多进程共享
+    tqdm.set_lock(mp.RLock())
 
     all_data = []
     for perspective in ['1st_data', '3rd_data']:
@@ -444,7 +465,7 @@ def compute_metrics(gt_root, test_root, requested_metrics=['mse','psnr','ssim','
                     gpu_results = json.load(f)
                     result_dict['data'] += gpu_results
                 tqdm.write(f"  Merged {len(gpu_results)} results from {Path(gpu_file).name}")
-        raise
+        return result_dict
 
     return result_dict
 
