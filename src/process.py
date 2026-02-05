@@ -2,8 +2,8 @@ import lpips
 import torch
 from pyiqa.archs.musiq_arch import MUSIQ
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
-from src.utils.utils import load_gt_video, load_sample_video, load_time_from_json, print_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, clip_transform_Image, extract_actions_from_json, crop_video_frames, ensure_all_models_downloaded, CACHE_DIR
-from src.utils.dino_utils import load_dinov3_model, extract_dinov3_features
+from utils.utils import load_gt_video, load_sample_video, load_time_from_json, print_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, clip_transform_Image, extract_actions_from_json, crop_video_frames, ensure_all_models_downloaded, CACHE_DIR
+from utils.dino_utils import load_dinov3_model, extract_dinov3_features
 from tqdm import tqdm
 import torch.nn.functional as F
 import json
@@ -43,9 +43,12 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root, dino_path,
         字典，包含所有处理的数据的结果
     """
     # 初始化模型
+    tqdm.write(f"GPU[{gpu_id}]: loading lcm model")
     lpips_metric = lpips.LPIPS(net='alex', spatial=False).to(device)
     ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0, reduction='none').to(device)
     psnr_metric = PeakSignalNoiseRatio(data_range=1.0, reduction='none', dim=[1, 2, 3]).to(device)
+
+    tqdm.write(f"GPU[{gpu_id}]: loading visual quality model")
     imaging_model = MUSIQ(pretrained_model_path=get_musiq_spaq_path())
     aesthetic_model = torch.nn.Linear(768, 1)
     clip_model, preprocess = clip.load(get_vitl_path(), device=device)
@@ -59,7 +62,10 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root, dino_path,
     imaging_model.training = False
 
     # 加载DINOv3模型
+    tqdm.write(f"GPU[{gpu_id}]: loading dinov3 model")
     dino_model, dino_processor = load_dinov3_model(dino_path, device)
+
+    tqdm.write(f"GPU[{gpu_id}]: loaded all models")
 
     results = []
     try:
@@ -82,7 +88,7 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root, dino_path,
                 result['total_time'] = total_time
 
                 prefix = f"[GPU{gpu_id}] {data_path}"
-                tqdm.write(f"{prefix}: [1/4] Loading videos...")
+                tqdm.write(f"{prefix}: [1/5] Loading videos...")
 
                 # 读入视频
                 gt_imgs = load_gt_video(os.path.join(gt_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
@@ -91,16 +97,17 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root, dino_path,
                 sample_imgs = load_sample_video(os.path.join(test_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
                 sample_imgs = sample_imgs.to(device)
 
-                tqdm.write(f"{prefix}: [2/4] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
+                tqdm.write(f"{prefix}: [2/5] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
                 # 计算LCM指标
                 lcm = lcm_metric(sample_imgs, gt_imgs, requested_metrics, lpips_metric, ssim_metric, psnr_metric, process_batch_size)
                 result['lcm']= lcm
 
-                tqdm.write(f"{prefix}: [3/4] Computing visual quality metrics...")
+                tqdm.write(f"{prefix}: [3/5] Computing visual quality metrics...")
                 # 计算image_quality指标
                 vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model)
                 result['visual_quality'] = vq
 
+                tqdm.write(f"{prefix}: [4/5] Computing visual quality metrics...")
                 # 计算dino_MSE指标
                 dino_mse = dino_mse_metric(sample_imgs, gt_imgs, dino_model, dino_processor, device, process_batch_size)
                 result['dino'] = dino_mse
@@ -109,7 +116,7 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root, dino_path,
                 del sample_imgs, gt_imgs
                 torch.cuda.empty_cache()
 
-                tqdm.write(f"{prefix}: [4/4] Computing action accuracy (ViPE)...")
+                tqdm.write(f"{prefix}: [4/5] Computing action accuracy (ViPE)...")
                 # 计算action accuracy
                 actions = extract_actions_from_json(os.path.join(gt_dir, data_path, 'action.json'), mark_time, 97)
                 action = action_accuracy_metric(

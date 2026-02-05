@@ -3,13 +3,10 @@ from transformers import AutoModel, AutoImageProcessor
 
 # 全局变量保存模型和processor
 def load_dinov3_model(model_path, device='cuda:0'):
-
-    if dino_model is None:
-        print("加载DINOv3模型...")
-        dino_processor = AutoImageProcessor.from_pretrained(model_path)
-        dino_model = AutoModel.from_pretrained(model_path)
-        dino_model = dino_model.to(device)
-        dino_model.eval()
+    dino_processor = AutoImageProcessor.from_pretrained(model_path)
+    dino_model = AutoModel.from_pretrained(model_path)
+    dino_model = dino_model.to(device)
+    dino_model.eval()
 
     return dino_model, dino_processor
 

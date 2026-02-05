@@ -1,5 +1,5 @@
 import torch
-from src.utils.utils import clip_transform_Image
+from utils.utils import clip_transform_Image
 import torch.nn.functional as F
 
 def visual_quality_metric(images, imaging_model, aesthetic_model, clip_model, batch_size=8):

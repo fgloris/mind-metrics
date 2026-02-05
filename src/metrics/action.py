@@ -1,6 +1,6 @@
-from src.utils.utils import crop_video_frames, CACHE_DIR
-from src.utils.vipe_utils import extract_traj
-import src.utils.vipe_utils as vipe_utils
+from utils.utils import crop_video_frames, CACHE_DIR
+from utils.vipe_utils import extract_traj
+import utils.vipe_utils as vipe_utils
 from tqdm import tqdm
 import torch.nn.functional as F
 import numpy as np
