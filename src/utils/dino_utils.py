@@ -1,23 +1,17 @@
 import torch
-
 from transformers import AutoModel, AutoImageProcessor
 
 # 全局变量保存模型和processor
-_dino_model = None
-_dino_processor = None
-_model_path = "/home/wjp/Documents/Metric/dinov3/dinov3_vitb16"
+def load_dinov3_model(model_path, device='cuda:0'):
 
-def load_dinov3_model(device='cuda:0'):
-    global _dino_model, _dino_processor
-
-    if _dino_model is None:
+    if dino_model is None:
         print("加载DINOv3模型...")
-        _dino_processor = AutoImageProcessor.from_pretrained(_model_path)
-        _dino_model = AutoModel.from_pretrained(_model_path)
-        _dino_model = _dino_model.to(device)
-        _dino_model.eval()
+        dino_processor = AutoImageProcessor.from_pretrained(model_path)
+        dino_model = AutoModel.from_pretrained(model_path)
+        dino_model = dino_model.to(device)
+        dino_model.eval()
 
-    return _dino_model, _dino_processor
+    return dino_model, dino_processor
 
 def extract_dinov3_features(frames: torch.Tensor, model=None, processor=None, device='cuda:0', batch_size=8) -> torch.Tensor:
     """
@@ -56,9 +50,9 @@ def extract_dinov3_features(frames: torch.Tensor, model=None, processor=None, de
             patch_tokens = last_hidden_state[:, 5:, :]  # [batch, 196, 768]
 
             # L2 normalization
-            # patch_tokens_norm = torch.nn.functional.normalize(patch_tokens, p=2, dim=-1)
+            patch_tokens_norm = torch.nn.functional.normalize(patch_tokens, p=2, dim=-1)
 
-            features_list.append(patch_tokens)
+            features_list.append(patch_tokens_norm)
 
     features = torch.cat(features_list, dim=0)  # [f, 196, 768]
 
