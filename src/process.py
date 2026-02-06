@@ -92,12 +92,11 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
 
                 # 读入视频
                 gt_imgs = load_gt_video(os.path.join(gt_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
-                #gt_imgs = gt_imgs.to(device)
 
                 sample_imgs = load_sample_video(os.path.join(test_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
-                #sample_imgs = sample_imgs.to(device)
 
                 result['test_video_length'] = len(sample_imgs)
+                gt_imgs = gt_imgs[:len(sample_imgs)]
 
                 tqdm.write(f"{prefix}: [2/5] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
                 # 计算LCM指标
