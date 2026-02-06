@@ -5,6 +5,7 @@ from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMe
 from utils.utils import load_gt_video, load_sample_video, load_time_from_json, print_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, clip_transform_Image, extract_actions_from_json, crop_video_frames, ensure_all_models_downloaded, CACHE_DIR
 from utils.dino_utils import load_dinov3_model, extract_dinov3_features
 from tqdm import tqdm
+import threading
 import torch.nn.functional as F
 import json
 import clip
@@ -53,8 +54,6 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
 
     processed_count = 0
     try:
-        pbar = tqdm(desc=f"GPU{gpu_id}", position=gpu_id, leave=True)
-
         while True:
             # 检查是否需要停止
             if stop_event is not None and stop_event.is_set():
@@ -77,8 +76,6 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
             test_dir = os.path.join(test_root, data['perspective'], data['test_type'])
             if not os.path.exists(os.path.join(test_dir, data_path)):
                 continue
-
-            pbar.set_postfix({"file": data_path})
 
             try:
                 mark_time, total_time = load_time_from_json(os.path.join(gt_dir, data_path, 'action.json'))
@@ -147,7 +144,6 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
 
             result_list.append(result)
             processed_count += 1
-            pbar.set_postfix({"file": data_path, "processed": processed_count})
 
     finally:
         tqdm.write(f"GPU{gpu_id}: Cleaning up...")
@@ -160,7 +156,6 @@ def compute_metrics(gt_root, test_root, dino_path, requested_metrics=['mse','psn
     result_dict = {'data':[], 'video_max_time':video_max_time}
 
     mp.set_start_method('spawn', force=True)
-    tqdm.set_lock(mp.RLock())
 
     all_data = []
     for perspective in ['1st_data', '3rd_data']:
@@ -168,16 +163,16 @@ def compute_metrics(gt_root, test_root, dino_path, requested_metrics=['mse','psn
             gt_dir = os.path.join(gt_root, perspective, 'test', test_type)
             test_dir = os.path.join(test_root, perspective, test_type)
 
-            # 获取所有数据文件夹
-            all_data += [{'path': d, 'perspective': perspective, 'test_type': test_type} 
+            all_data += [{'path': d, 'perspective': perspective, 'test_type': test_type}
                 for d in os.listdir(gt_dir) if os.path.exists(os.path.join(test_dir, d))]
 
     if len(all_data) == 0:
         tqdm.write(f"No data found!")
         return
 
+    total_tasks = len(all_data)
     tqdm.write(f"\n{'='*60}")
-    tqdm.write(f"Total data: {len(all_data)}, Using {num_gpus} GPU(s) with task queue")
+    tqdm.write(f"Total data: {total_tasks}, Using {num_gpus} GPU(s) with task queue")
     tqdm.write(f"{'='*60}\n")
 
     ensure_all_models_downloaded()
@@ -190,6 +185,24 @@ def compute_metrics(gt_root, test_root, dino_path, requested_metrics=['mse','psn
     for task in all_data:
         task_queue.put(task)
 
+    # 进度条监控线程
+    def monitor_progress():
+        pbar = tqdm(total=total_tasks, desc="Progress", unit="video")
+        last_count = 0
+        while not stop_event.is_set() or len(result_list) < total_tasks:
+            current_count = len(result_list)
+            if current_count > last_count:
+                pbar.update(current_count - last_count)
+                last_count = current_count
+            if last_count >= total_tasks:
+                break
+            import time
+            time.sleep(0.5)
+        pbar.close()
+
+    monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
+    monitor_thread.start()
+
     try:
         with mp.Pool(processes=num_gpus) as pool:
             worker_args = [
@@ -200,6 +213,7 @@ def compute_metrics(gt_root, test_root, dino_path, requested_metrics=['mse','psn
 
             pool.starmap(compute_metrics_single_gpu, worker_args)
 
+        monitor_thread.join()
         result_dict['data'] = list(result_list)
 
     except KeyboardInterrupt:
@@ -207,6 +221,7 @@ def compute_metrics(gt_root, test_root, dino_path, requested_metrics=['mse','psn
         stop_event.set()
         pool.terminate()
         pool.join()
+        monitor_thread.join(timeout=2)
         result_dict['data'] = list(result_list)
         tqdm.write(f"  Merged {len(result_dict['data'])} results from shared list")
 
