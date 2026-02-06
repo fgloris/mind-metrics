@@ -92,28 +92,27 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root, dino_path,
 
                 # 读入视频
                 gt_imgs = load_gt_video(os.path.join(gt_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
-                gt_imgs = gt_imgs.to(device)
+                #gt_imgs = gt_imgs.to(device)
 
                 sample_imgs = load_sample_video(os.path.join(test_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
-                sample_imgs = sample_imgs.to(device)
+                #sample_imgs = sample_imgs.to(device)
 
                 tqdm.write(f"{prefix}: [2/5] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
                 # 计算LCM指标
-                lcm = lcm_metric(sample_imgs, gt_imgs, requested_metrics, lpips_metric, ssim_metric, psnr_metric, process_batch_size)
+                lcm = lcm_metric(sample_imgs, gt_imgs, requested_metrics, lpips_metric, ssim_metric, psnr_metric, process_batch_size, device)
                 result['lcm']= lcm
 
                 tqdm.write(f"{prefix}: [3/5] Computing visual quality metrics...")
                 # 计算image_quality指标
-                vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model)
+                vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model, device)
                 result['visual_quality'] = vq
 
-                tqdm.write(f"{prefix}: [4/5] Computing visual quality metrics...")
+                tqdm.write(f"{prefix}: [4/5] Computing dino mse metrics...")
                 # 计算dino_MSE指标
                 dino_mse = dino_mse_metric(sample_imgs, gt_imgs, dino_model, dino_processor, device, process_batch_size)
                 result['dino'] = dino_mse
 
                 # 清理内存
-                del sample_imgs, gt_imgs
                 torch.cuda.empty_cache()
 
                 tqdm.write(f"{prefix}: [4/5] Computing action accuracy (ViPE)...")

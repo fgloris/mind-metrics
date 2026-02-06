@@ -5,3 +5,4 @@ lpips
 pyiqa
 openai-clip
 modelscope
+av
