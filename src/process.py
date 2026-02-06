@@ -97,6 +97,8 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root, dino_path,
                 sample_imgs = load_sample_video(os.path.join(test_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
                 #sample_imgs = sample_imgs.to(device)
 
+                result['test_video_length'] = len(sample_imgs)
+
                 tqdm.write(f"{prefix}: [2/5] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
                 # 计算LCM指标
                 lcm = lcm_metric(sample_imgs, gt_imgs, requested_metrics, lpips_metric, ssim_metric, psnr_metric, process_batch_size, device)
@@ -265,7 +267,7 @@ if __name__ == '__main__':
     parser.add_argument('--dino_path', type=str, default='./dinov3_vitb16',
                        help='dinov3 weight directory, for example ./dinov3_vitb16')
     parser.add_argument('--num_gpus', type=int, default=1, help='Number of GPUs to use (default: 1)')
-    parser.add_argument('--video_max_time', type=int, default=100, help='Maximum video frames (default: 100)')
+    parser.add_argument('--video_max_time', type=int, default=None, help='Maximum video frames (default: None = use all frames)')
     parser.add_argument('--output', type=str, default=None, help='Output JSON file path')
 
     args = parser.parse_args()

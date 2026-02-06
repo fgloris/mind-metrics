@@ -119,20 +119,22 @@ def expand_to_batch_dim(tensor, batch_size):
     return tensor.unsqueeze(0).expand(batch_size, *tensor.shape)
 
 from torchvision.io import read_video
-def load_sample_video(video_path, mark_time, total_time, max_time = 200) -> torch.Tensor:
+def load_sample_video(video_path, mark_time, total_time, max_time = None) -> torch.Tensor:
     video_length = total_time - mark_time
     frames,_,_ = read_video(video_path, pts_unit='sec')
-    frames = frames.permute(0, 3, 1, 2)[:min(max_time, video_length)]
+    frames = frames.permute(0, 3, 1, 2)[:video_length]
+    if max_time is not None:
+        frames = frames[:max_time]
     return transform_image(frames)
 
-def load_gt_video(video_path, mark_time, total_time, max_time = 200) -> torch.Tensor:
+def load_gt_video(video_path, mark_time, total_time, max_time = None) -> torch.Tensor:
     start_time = (mark_time-12) / 24
     frames,_,_ = read_video(video_path, pts_unit='sec', start_pts=start_time)
-    
+
     frames = frames.permute(0, 3, 1, 2)
     video_length = total_time - mark_time
     frames = frames[len(frames) - video_length:]
-    if video_length > max_time:
+    if max_time is not None:
         frames = frames[:max_time]
     return transform_image(frames)
 
@@ -141,7 +143,7 @@ def load_time_from_json(json_path):
         item = json.load(f)
     return item['mark_time'], item['total_time']
 
-def extract_actions_from_json(json_path, mark_time=None, video_max_time=200):
+def extract_actions_from_json(json_path, mark_time=None, video_max_time=97):
     with open(json_path, 'r') as f:
         action_data = json.load(f)
 
