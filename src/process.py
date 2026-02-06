@@ -104,7 +104,7 @@ def compute_metrics_single_gpu(data_list, gt_root, test_root, dino_path,
 
                 tqdm.write(f"{prefix}: [3/5] Computing visual quality metrics...")
                 # 计算image_quality指标
-                vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model, device)
+                vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model, process_batch_size, device)
                 result['visual_quality'] = vq
 
                 tqdm.write(f"{prefix}: [4/5] Computing dino mse metrics...")
