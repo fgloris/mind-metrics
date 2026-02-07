@@ -83,10 +83,11 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                 tqdm.write(f"{prefix}: [1/5] Loading videos...")
 
                 # what i want
+                gt_frames = get_video_length(os.path.join(test_dir, data_path, 'video.mp4'))
                 sample_frames = get_video_length(os.path.join(test_dir, data_path, 'video.mp4'))
+                tqdm.write(f"{prefix}: gt_frames={gt_frames}, sample={sample_frames}, total_time={total_time}, mark_time={mark_time}")
                 result['sample_frames'] = sample_frames
                 if sample_frames != total_time - mark_time:
-                    tqdm.write(f"{prefix}: [LENGTH_MISMATCH] {data_path}: gt={total_time - mark_time}(after marktime), sample={sample_frames}")
                     sample_frames = min(total_time - mark_time, sample_frames)
                     total_time = sample_frames + mark_time
 
