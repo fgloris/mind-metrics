@@ -120,7 +120,7 @@ def expand_to_batch_dim(tensor, batch_size):
 
 # legacy code, preserve
 from torchvision.io import read_video
-import torchcodec.decoders as decoders
+import av
 
 def load_sample_video(video_path, mark_time, total_time, max_time = None) -> torch.Tensor:
     video_length = total_time - mark_time
@@ -142,24 +142,27 @@ def load_gt_video(video_path, mark_time, total_time, max_time = None) -> torch.T
     return transform_image(frames)
 
 def get_video_length(video_path) -> int:
-    """使用torchcodec获取视频帧数"""
-    decoder = decoders.VideoDecoder(video_path)
-    # 获取视频元数据中的帧数
-    metadata = decoder.metadata
-    num_frames = metadata.num_frames.value()
-    del decoder
-    return num_frames
+    """获取视频帧数"""
+    with av.open(video_path) as container:
+        return container.streams.video[0].frames
 
 class VideoStreamReader:
-    """使用torchcodec进行流式视频读取"""
+    """使用av进行流式视频读取，内存安全"""
     def __init__(self, video_path, start_frame=0, total_frames=None):
         self.video_path = video_path
-        self.decoder = decoders.VideoDecoder(video_path)
-        metadata = self.decoder.metadata
-        self.total_frames = metadata.num_frames.value() if total_frames is None else total_frames
-        self.fps = metadata.fps.value()
-        self.current_pos = start_frame
+        self.container = av.open(video_path)
+        self.video_stream = self.container.streams.video[0]
+        self.fps = float(self.video_stream.average_rate)
+
+        stream_total_frames = self.video_stream.frames
+        self.total_frames = stream_total_frames if total_frames is None else total_frames
         self.start_frame = start_frame
+        self.current_pos = start_frame
+
+        if start_frame > 0:
+            for _ in range(start_frame):
+                if next(self.container.decode(video=0), None) is None:
+                    break
 
     def read_batch(self, batch_size):
         """读取一批帧，返回(is_ended, frames_tensor)"""
@@ -167,20 +170,27 @@ class VideoStreamReader:
             return True, None
 
         frames_to_read = min(batch_size, self.total_frames - self.current_pos)
+        frames_list = []
 
-        # 使用get_next_clip读取指定数量的帧
-        frames_tensor = self.decoder.get_next_clip(frames_to_read)
-        # shape: [T, H, W, C]
-        frames_tensor = frames_tensor.permute(0, 3, 1, 2)  # [T, C, H, W]
+        for _ in range(frames_to_read):
+            frame = next(self.container.decode(video=0), None)
+            if frame is None:
+                break
+            frames_list.append(torch.from_numpy(frame.to_rgb().to_ndarray()).float() / 255.0)
+
+        if not frames_list:
+            return True, None
+
+        frames_tensor = torch.stack(frames_list).permute(0, 3, 1, 2)
         frames_tensor = transform_image(frames_tensor)
 
-        self.current_pos += frames_to_read
+        self.current_pos += len(frames_list)
         is_ended = self.current_pos >= self.total_frames
         return is_ended, frames_tensor
 
     def __del__(self):
-        if hasattr(self, 'decoder'):
-            del self.decoder
+        if hasattr(self, 'container'):
+            self.container.close()
 
 def load_time_from_json(json_path):
     with open(json_path, 'r') as f:
