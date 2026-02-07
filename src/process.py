@@ -290,7 +290,7 @@ if __name__ == '__main__':
         output_path = args.output
     else:
         from datetime import datetime
-        output_path = f'result_{datetime.now().strftime("%Y-%m-%d-%H:%M:%S")}.json'
+        output_path = f'result_{os.path.basename(args.test_root)}_{datetime.now().strftime("%Y-%m-%d-%H:%M:%S")}.json'
 
     tqdm.write(f"Starting computation with {args.num_gpus} GPU(s)...")
     tqdm.write(f"Output will be saved to: {output_path}")
