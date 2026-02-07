@@ -173,12 +173,13 @@ class VideoStreamReader:
         if self.current_pos >= self.total_frames:
             return True, None
 
-        frames_to_read = min(batch_size, self.total_frames - self.current_pos)
+        frames_to_read = min(batch_size, self.total_frames - self.current_pos - 1)
         frames_list = []
 
         for i in range(frames_to_read):
             try:
                 frame = next(self.container.decode(video=0), None)
+                self.current_pos += 1
             except Exception as e:
                 print(f"[VideoStreamReader] ERROR: Exception at read_batch frame {i}/{frames_to_read}, current_pos={self.current_pos}: {e}")
                 break
@@ -193,7 +194,6 @@ class VideoStreamReader:
         frames_tensor = torch.stack(frames_list).permute(0, 3, 1, 2)
         frames_tensor = transform_image(frames_tensor)
 
-        self.current_pos += len(frames_list)
         is_ended = self.current_pos >= self.total_frames
         return is_ended, frames_tensor
 
