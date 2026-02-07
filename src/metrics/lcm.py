@@ -8,7 +8,7 @@ def load_models(device):
     psnr_metric = PeakSignalNoiseRatio(data_range=1.0, reduction='none', dim=[1, 2, 3]).to(device)
     return lpips_metric, ssim_metric, psnr_metric
 
-def lcm_metric(pred, gt, requested_metrics,
+def lcm_metric(pred, gt,
                lpips_metric, ssim_metric, psnr_metric, batch_size=100, device='cuda:0'):
     f, c, h, w = pred.size()
     assert(torch.all(pred >= 0.0) and torch.all(pred <= 1.0))

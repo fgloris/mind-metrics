@@ -128,7 +128,7 @@ def load_sample_video(video_path, mark_time, total_time, max_time = None) -> tor
     return transform_image(frames)
 
 def load_gt_video(video_path, mark_time, total_time, max_time = None) -> torch.Tensor:
-    start_time = (mark_time-12) / 24
+    start_time = mark_time // 24 - 1
     frames,_,_ = read_video(video_path, pts_unit='sec', start_pts=start_time)
 
     frames = frames.permute(0, 3, 1, 2)
