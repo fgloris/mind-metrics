@@ -72,6 +72,7 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
             gt_dir = os.path.join(gt_root, data['perspective'], 'test', data['test_type'])
             test_dir = os.path.join(test_root, data['perspective'], data['test_type'])
 
+            prefix = f"[GPU{gpu_id}] {data_path}"
             try:
                 mark_time, total_time = load_time_from_json(os.path.join(gt_dir, data_path, 'action.json'))
                 result = data
@@ -79,14 +80,13 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                 result['mark_time'] = mark_time
                 result['total_time'] = total_time
 
-                prefix = f"[GPU{gpu_id}] {data_path}"
                 tqdm.write(f"{prefix}: [1/5] Loading videos...")
 
                 # what i want
                 sample_frames = get_video_length(os.path.join(test_dir, data_path, 'video.mp4'))
                 result['sample_frames'] = sample_frames
                 if sample_frames != total_time - mark_time:
-                    tqdm.write(f"[LENGTH_MISMATCH] {data_path}: gt={total_time - mark_time}(after marktime), sample={sample_frames}")
+                    tqdm.write(f"{prefix}: [LENGTH_MISMATCH] {data_path}: gt={total_time - mark_time}(after marktime), sample={sample_frames}")
                     sample_frames = min(total_time - mark_time, sample_frames)
                     total_time = sample_frames + mark_time
 
@@ -144,12 +144,12 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                 tqdm.write(f"{prefix}: Finish Task!")
 
             except KeyboardInterrupt:
-                tqdm.write(f"\nGPU{gpu_id}: Interrupted by user. Exiting...")
+                tqdm.write(f"{prefix}: Interrupted by user. Exiting...")
                 if stop_event is not None:
                     stop_event.set()
                 raise
             except Exception as e:
-                tqdm.write(f"Error processing {data_path} on GPU{gpu_id}: {e}, putting task back to queue")
+                tqdm.write(f"{prefix}: Error processing {data_path} on GPU{gpu_id}: {e}, putting task back to queue")
                 result['error'] = str(e)
                 task_queue.put(data)  # 失败任务放回队列
                 continue
