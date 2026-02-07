@@ -199,21 +199,25 @@ def compute_metrics(gt_root, test_root, dino_path, output_path, requested_metric
     def monitor_progress():
         pbar = tqdm(total=total_tasks, desc="Progress", unit="video")
         last_count = 0
-        while not stop_event.is_set() or len(result_list) < total_tasks:
-            current_count = len(result_list)
-            if current_count > last_count:
-                pbar.update(current_count - last_count)
-                last_count = current_count
-                with open(output_path, 'w') as f:
-                    result_dict['data'] = list(result_list)
-                    json.dump(result_dict, f, indent=2)
-            else:
-                pbar.update(0)
-            if last_count >= total_tasks:
-                break
-            time.sleep(0.5)
-        stop_event.set()
-        pbar.close()
+        try:
+            while not stop_event.is_set() or len(result_list) < total_tasks:
+                current_count = len(result_list)
+                if current_count > last_count:
+                    pbar.update(current_count - last_count)
+                    last_count = current_count
+                    with open(output_path, 'w') as f:
+                        result_dict['data'] = list(result_list)
+                        json.dump(result_dict, f, indent=2)
+                else:
+                    pbar.update(0)
+                if last_count >= total_tasks:
+                    break
+                time.sleep(0.5)
+            stop_event.set()
+        except (ConnectionResetError, OSError):
+            pass  # Ctrl-C时manager连接关闭，忽略
+        finally:
+            pbar.close()
 
     monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
     monitor_thread.start()
