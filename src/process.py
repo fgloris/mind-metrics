@@ -257,7 +257,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_gpus', type=int, default=1, help='Number of GPUs to use (default: 1)')
     parser.add_argument('--video_max_time', type=int, default=None, help='Maximum video frames (default: None = use all frames)')
     parser.add_argument('--output', type=str, default=None, help='Output JSON file path')
-    parser.add_argument('--metrics', type=list, default=['lcm', 'visual', 'dino', 'action'], help='Requested metrics to compute')
+    parser.add_argument('--metrics', type=str, default='lcm,visual,dino,action', help='Requested metrics to compute, comma separated (e.g. dino,visual)')
 
     args = parser.parse_args()
 
@@ -284,7 +284,7 @@ if __name__ == '__main__':
             args.test_root,
             args.dino_path,
             output_path,
-            requested_metrics=args.metrics,
+            requested_metrics=[m.strip() for m in args.metrics.split(',')],
             video_max_time=args.video_max_time,
             num_gpus=args.num_gpus
         )
