@@ -173,12 +173,12 @@ def compute_metrics(gt_root, test_root, dino_path, output_path, requested_metric
 
     all_data = []
     for perspective in ['1st_data']:#, '3rd_data']:
-        for test_type in ['mem_test', 'action_space_test']:
+        for test_type in ['mem_test']:#, 'action_space_test']:
             gt_dir = os.path.join(gt_root, perspective, 'test', test_type)
             test_dir = os.path.join(test_root, perspective, test_type)
 
             all_data += [{'path': d, 'perspective': perspective, 'test_type': test_type}
-                for d in os.listdir(gt_dir) if os.path.exists(os.path.join(test_dir, d))]
+                for d in os.listdir(gt_dir) if os.path.exists(os.path.join(test_dir, d)) and d.endswith('Namaqualand-2m32s')]
 
     if len(all_data) == 0:
         tqdm.write(f"No data found!")
