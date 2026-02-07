@@ -118,7 +118,10 @@ def save_video(tensor, output_path):
 def expand_to_batch_dim(tensor, batch_size):
     return tensor.unsqueeze(0).expand(batch_size, *tensor.shape)
 
+# legacy code, preserve
 from torchvision.io import read_video
+import torchcodec.decoders as decoders
+
 def load_sample_video(video_path, mark_time, total_time, max_time = None) -> torch.Tensor:
     video_length = total_time - mark_time
     frames,_,_ = read_video(video_path, pts_unit='sec')
@@ -137,6 +140,47 @@ def load_gt_video(video_path, mark_time, total_time, max_time = None) -> torch.T
     if max_time is not None:
         frames = frames[:max_time]
     return transform_image(frames)
+
+def get_video_length(video_path) -> int:
+    """使用torchcodec获取视频帧数"""
+    decoder = decoders.VideoDecoder(video_path)
+    # 获取视频元数据中的帧数
+    metadata = decoder.metadata
+    num_frames = metadata.num_frames.value()
+    del decoder
+    return num_frames
+
+class VideoStreamReader:
+    """使用torchcodec进行流式视频读取"""
+    def __init__(self, video_path, start_frame=0, total_frames=None):
+        self.video_path = video_path
+        self.decoder = decoders.VideoDecoder(video_path)
+        metadata = self.decoder.metadata
+        self.total_frames = metadata.num_frames.value() if total_frames is None else total_frames
+        self.fps = metadata.fps.value()
+        self.current_pos = start_frame
+        self.start_frame = start_frame
+
+    def read_batch(self, batch_size):
+        """读取一批帧，返回(is_ended, frames_tensor)"""
+        if self.current_pos >= self.total_frames:
+            return True, None
+
+        frames_to_read = min(batch_size, self.total_frames - self.current_pos)
+
+        # 使用get_next_clip读取指定数量的帧
+        frames_tensor = self.decoder.get_next_clip(frames_to_read)
+        # shape: [T, H, W, C]
+        frames_tensor = frames_tensor.permute(0, 3, 1, 2)  # [T, C, H, W]
+        frames_tensor = transform_image(frames_tensor)
+
+        self.current_pos += frames_to_read
+        is_ended = self.current_pos >= self.total_frames
+        return is_ended, frames_tensor
+
+    def __del__(self):
+        if hasattr(self, 'decoder'):
+            del self.decoder
 
 def load_time_from_json(json_path):
     with open(json_path, 'r') as f:

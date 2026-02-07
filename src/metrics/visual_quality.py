@@ -32,3 +32,16 @@ def visual_quality_metric(images, imaging_model, aesthetic_model, clip_model, ba
     result_dict["aesthetic"] = aesthetic_scores
     result_dict["avg_aesthetic"] = sum(aesthetic_scores) / len(aesthetic_scores)
     return result_dict
+
+def merge_visual_results(result_dict, new_result):
+    """合并两个visual quality结果字典"""
+    if result_dict is None:
+        return new_result
+    if new_result is None:
+        return result_dict
+
+    result_dict['imaging'].extend(new_result['imaging'])
+    result_dict['aesthetic'].extend(new_result['aesthetic'])
+    result_dict['avg_imaging'] = sum(result_dict['imaging']) / len(result_dict['imaging'])
+    result_dict['avg_aesthetic'] = sum(result_dict['aesthetic']) / len(result_dict['aesthetic'])
+    return result_dict

@@ -52,3 +52,21 @@ def lcm_metric(pred, gt,
         result_dict['avg_lpips'] = sum(lpips_list) / len(lpips_list)
 
     return result_dict
+
+def merge_lcm_results(result_dict, new_result):
+    """合并两个lcm结果字典"""
+    if result_dict is None:
+        return new_result
+    if new_result is None:
+        return result_dict
+
+    result_dict['mse'].extend(new_result['mse'])
+    result_dict['psnr'].extend(new_result['psnr'])
+    result_dict['ssim'].extend(new_result['ssim'])
+    result_dict['lpips'].extend(new_result['lpips'])
+    result_dict['length'] += new_result['length']
+    result_dict['avg_mse'] = sum(result_dict['mse']) / len(result_dict['mse'])
+    result_dict['avg_psnr'] = sum(result_dict['psnr']) / len(result_dict['psnr'])
+    result_dict['avg_ssim'] = sum(result_dict['ssim']) / len(result_dict['ssim'])
+    result_dict['avg_lpips'] = sum(result_dict['lpips']) / len(result_dict['lpips'])
+    return result_dict

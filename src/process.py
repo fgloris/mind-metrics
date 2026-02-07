@@ -2,7 +2,7 @@ import lpips
 import torch
 from pyiqa.archs.musiq_arch import MUSIQ
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
-from utils.utils import load_gt_video, load_sample_video, load_time_from_json, print_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, clip_transform_Image, extract_actions_from_json, crop_video_frames, ensure_all_models_downloaded, CACHE_DIR
+from utils.utils import load_time_from_json, print_gpu_memory, get_musiq_spaq_path, get_vitl_path, get_aes_path, extract_actions_from_json, ensure_all_models_downloaded, CACHE_DIR, VideoStreamReader, get_video_length
 from utils.dino_utils import load_dinov3_model, extract_dinov3_features
 from tqdm import tqdm
 import threading
@@ -14,13 +14,13 @@ from pathlib import Path
 import torch.multiprocessing as mp
 import warnings
 from metrics.action import action_accuracy_metric
-from metrics.lcm import lcm_metric
-from metrics.visual_quality import visual_quality_metric
-from metrics.dino import dino_mse_metric
+from metrics.lcm import lcm_metric, merge_lcm_results
+from metrics.visual_quality import visual_quality_metric, merge_visual_results
+from metrics.dino import dino_mse_metric, merge_dino_results
 import time
 
 def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino_path,
-                               requested_metrics, video_max_time, process_batch_size, device, gpu_id, stop_event=None):
+                               requested_metrics, video_max_time, process_batch_size, device, gpu_id, stop_event):
     import warnings
     warnings.filterwarnings("ignore", message=".*pretrained.*")
     warnings.filterwarnings("ignore", message=".*Weights.*")
@@ -59,7 +59,7 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
     try:
         while True:
             # 检查是否需要停止
-            if stop_event is not None and stop_event.is_set():
+            if stop_event.is_set():
                 tqdm.write(f"GPU{gpu_id}: Stop event received, exiting...")
                 break
 
@@ -82,50 +82,46 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                 prefix = f"[GPU{gpu_id}] {data_path}"
                 tqdm.write(f"{prefix}: [1/5] Loading videos...")
 
-                # 读入视频
-                try:
-                    gt_imgs = load_gt_video(os.path.join(gt_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
-                    sample_imgs = load_sample_video(os.path.join(test_dir, data_path, 'video.mp4'), mark_time, total_time, video_max_time)
-                except Exception as e:
-                    tqdm.write(f"[VIDEO_LOAD_ERROR] {data_path} on GPU{gpu_id}: {e}")
-                    result['error'] = f'video_load_error: {str(e)}'
-                    result_list.append(result)
-                    continue
+                # what i want
+                sample_frames = get_video_length(os.path.join(test_dir, data_path, 'video.mp4'))
+                result['sample_frames'] = sample_frames
+                if sample_frames + mark_time != total_time:
+                    tqdm.write(f"[LENGTH_MISMATCH] {data_path}: gt={total_time}, sample={sample_frames}")
+                    total_time = min(total_time, sample_frames + mark_time)
+                    sample_frames = total_time - mark_time
 
-                result['test_video_length'] = len(sample_imgs)
-                result['gt_video_length_from_marktime'] = len(gt_imgs) 
+                gt_reader = VideoStreamReader(os.path.join(gt_dir, data_path, 'video.mp4'), start_frame=mark_time, total_frames=total_time)
+                sample_reader = VideoStreamReader(os.path.join(test_dir, data_path, 'video.mp4'), start_frame=0, total_frames=sample_frames)
 
-                if len(gt_imgs) != len(sample_imgs):
-                    tqdm.write(f"[LENGTH_MISMATCH] {data_path}: gt={len(gt_imgs)}, sample={len(sample_imgs)}")
-                gt_imgs = gt_imgs[:len(sample_imgs)]
-                
                 if 'lcm' in requested_metrics:
                     tqdm.write(f"{prefix}: [2/5] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
-                    # 计算LCM指标
-                    lcm = lcm_metric(sample_imgs, gt_imgs, lpips_metric, ssim_metric, psnr_metric, process_batch_size, device)
-                    result['lcm']= lcm
-
                 if 'visual' in requested_metrics:
                     tqdm.write(f"{prefix}: [3/5] Computing visual quality metrics...")
-                    # 计算image_quality指标
-                    vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model, process_batch_size, device)
-                    result['visual_quality'] = vq
-                
                 if 'dino' in requested_metrics:
                     tqdm.write(f"{prefix}: [4/5] Computing dino mse metrics...")
-                    # 计算dino_MSE指标
-                    try:
-                        dino_mse = dino_mse_metric(sample_imgs, gt_imgs, dino_model, dino_processor, device, process_batch_size)
-                        result['dino'] = dino_mse
-                    except Exception as e:
-                        import traceback
-                        tqdm.write(f"[DINO_ERROR] {data_path} on GPU{gpu_id}: {e}")
-                        tqdm.write(f"Traceback: {traceback.format_exc()}")
-                        result['error'] = f'dino_error: {str(e)}'
-                        result_list.append(result)
-                        continue
-                
-                # 清理内存
+
+                while True:
+                    is_ended, gt_imgs = gt_reader.read_batch(process_batch_size * 10)
+                    _, sample_imgs = sample_reader.read_batch(process_batch_size * 10)
+
+                    if is_ended or gt_imgs is None or sample_imgs is None:
+                        break
+
+                    if 'lcm' in requested_metrics:
+                        lcm = lcm_metric(sample_imgs, gt_imgs, lpips_metric, ssim_metric, psnr_metric, process_batch_size, device)
+                        result['lcm'] = merge_lcm_results(result.get('lcm'), lcm)
+
+                    if 'visual' in requested_metrics:
+                        vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model, process_batch_size, device)
+                        result['visual_quality'] = merge_visual_results(result.get('visual_quality'), vq)
+
+                    if 'dino' in requested_metrics:
+                        dino = dino_mse_metric(sample_imgs, gt_imgs, dino_model, dino_processor, device, process_batch_size)
+                        result['dino'] = merge_dino_results(result.get('dino'), dino)
+
+                    del gt_imgs, sample_imgs
+
+                del gt_reader, sample_reader
                 torch.cuda.empty_cache()
 
                 if 'action' in requested_metrics:
