@@ -114,8 +114,16 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                 if 'dino' in requested_metrics:
                     tqdm.write(f"{prefix}: [4/5] Computing dino mse metrics...")
                     # 计算dino_MSE指标
-                    dino_mse = dino_mse_metric(sample_imgs, gt_imgs, dino_model, dino_processor, device, process_batch_size)
-                    result['dino'] = dino_mse
+                    try:
+                        dino_mse = dino_mse_metric(sample_imgs, gt_imgs, dino_model, dino_processor, device, process_batch_size)
+                        result['dino'] = dino_mse
+                    except Exception as e:
+                        import traceback
+                        tqdm.write(f"[DINO_ERROR] {data_path} on GPU{gpu_id}: {e}")
+                        tqdm.write(f"Traceback: {traceback.format_exc()}")
+                        result['error'] = f'dino_error: {str(e)}'
+                        result_list.append(result)
+                        continue
                 
                 # 清理内存
                 torch.cuda.empty_cache()
