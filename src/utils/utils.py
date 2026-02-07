@@ -177,7 +177,11 @@ class VideoStreamReader:
         frames_list = []
 
         for i in range(frames_to_read):
-            frame = next(self.container.decode(video=0), None)
+            try:
+                frame = next(self.container.decode(video=0), None)
+            except Exception as e:
+                print(f"[VideoStreamReader] ERROR: Exception at read_batch frame {i}/{frames_to_read}, current_pos={self.current_pos}: {e}")
+                break
             if frame is None:
                 print(f"[VideoStreamReader] WARNING: Hit None at read_batch frame {i}/{frames_to_read}, current_pos={self.current_pos}")
                 break
