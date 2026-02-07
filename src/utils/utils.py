@@ -83,7 +83,8 @@ def ensure_all_models_downloaded():
     tqdm.write("All models ready.\n")
 
 def transform_image(images):
-    # 输入: images (Tensor) - 形状为 [B, C, H, W] 输出: 归一化后的 [B, C, 1280, 720] Tensor
+    # 输入: images (Tensor) - 形状为 [B, C, H, W], 范围[0,255]
+    # 输出: 归一化后, 范围[0,1]的 [B, C, 1280, 720] Tensor
     b, c, h, w = images.size()
     if h * 1280 == w * 720:
         images = transforms.Resize(size=(720, 1280), antialias=False)(images)
@@ -164,9 +165,7 @@ class VideoStreamReader:
             for i in range(start_frame):
                 frame = next(self.container.decode(video=0), None)
                 if frame is None:
-                    print(f"[VideoStreamReader] WARNING: Hit None at skip frame {i}/{start_frame}")
                     break
-            print(f"[VideoStreamReader] Skip done, current_pos={self.current_pos}")
 
     def read_batch(self, batch_size):
         """读取一批帧，返回(is_ended, frames_tensor)"""
@@ -184,9 +183,8 @@ class VideoStreamReader:
                 print(f"[VideoStreamReader] ERROR: Exception at read_batch frame {i}/{frames_to_read}, current_pos={self.current_pos}: {e}")
                 break
             if frame is None:
-                print(f"[VideoStreamReader] WARNING: Hit None at read_batch frame {i}/{frames_to_read}, current_pos={self.current_pos}")
                 break
-            frames_list.append(torch.from_numpy(frame.to_rgb().to_ndarray()).float() / 255.0)
+            frames_list.append(torch.from_numpy(frame.to_rgb().to_ndarray()).float())
 
         if not frames_list:
             return True, None
