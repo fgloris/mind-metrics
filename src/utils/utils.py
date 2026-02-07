@@ -156,13 +156,17 @@ class VideoStreamReader:
 
         stream_total_frames = self.video_stream.frames
         self.total_frames = stream_total_frames if total_frames is None else total_frames
-        self.start_frame = start_frame
         self.current_pos = start_frame
+        print(f"[VideoStreamReader] {video_path}: stream_total={stream_total_frames}, start_frame={start_frame}, total_frames={self.total_frames}")
 
         if start_frame > 0:
-            for _ in range(start_frame):
-                if next(self.container.decode(video=0), None) is None:
+            print(f"[VideoStreamReader] Skipping {start_frame} frames...")
+            for i in range(start_frame):
+                frame = next(self.container.decode(video=0), None)
+                if frame is None:
+                    print(f"[VideoStreamReader] WARNING: Hit None at skip frame {i}/{start_frame}")
                     break
+            print(f"[VideoStreamReader] Skip done, current_pos={self.current_pos}")
 
     def read_batch(self, batch_size):
         """读取一批帧，返回(is_ended, frames_tensor)"""
@@ -172,9 +176,10 @@ class VideoStreamReader:
         frames_to_read = min(batch_size, self.total_frames - self.current_pos)
         frames_list = []
 
-        for _ in range(frames_to_read):
+        for i in range(frames_to_read):
             frame = next(self.container.decode(video=0), None)
             if frame is None:
+                print(f"[VideoStreamReader] WARNING: Hit None at read_batch frame {i}/{frames_to_read}, current_pos={self.current_pos}")
                 break
             frames_list.append(torch.from_numpy(frame.to_rgb().to_ndarray()).float() / 255.0)
 
