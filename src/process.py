@@ -182,7 +182,7 @@ def compute_metrics(gt_root, test_root, dino_path, output_path, requested_metric
     mp.set_start_method('spawn', force=True)
 
     all_data = []
-    for perspective in ['1st_data']:#, '3rd_data']:
+    for perspective in ['1st_data', '3rd_data']:
         for test_type in ['mem_test', 'action_space_test']:
             gt_dir = os.path.join(gt_root, perspective, 'test', test_type)
             test_dir = os.path.join(test_root, perspective, test_type)
