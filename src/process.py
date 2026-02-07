@@ -18,6 +18,9 @@ from metrics.lcm import lcm_metric, merge_lcm_results
 from metrics.visual_quality import visual_quality_metric, merge_visual_results
 from metrics.dino import dino_mse_metric, merge_dino_results
 import time
+from collections import namedtuple
+
+Task = namedtuple('Task', ['data', 'retry_count'])
 
 def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino_path,
                                requested_metrics, video_max_time, process_batch_size, device, gpu_id, stop_event):
@@ -64,7 +67,9 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                 break
 
             try:
-                data = task_queue.get(timeout=5)
+                task = task_queue.get(timeout=5)
+                data = task.data
+                retry_count = task.retry_count
             except:
                 continue
 
@@ -150,9 +155,13 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                     stop_event.set()
                 raise
             except Exception as e:
-                tqdm.write(f"{prefix}: Error processing {data_path} on GPU{gpu_id}: {e}, putting task back to queue")
                 result['error'] = str(e)
-                task_queue.put(data)  # 失败任务放回队列
+                if retry_count < 3:
+                    tqdm.write(f"{prefix}: Error processing {data_path} on GPU{gpu_id}: {e}, retrying ({retry_count + 1}/3)")
+                    task_queue.put(Task(data, retry_count + 1))
+                else:
+                    tqdm.write(f"{prefix}: Error processing {data_path} on GPU{gpu_id}: {e}, max retries exceeded, giving up")
+                    result_list.append(result)
                 continue
 
             result_list.append(result)
@@ -198,7 +207,7 @@ def compute_metrics(gt_root, test_root, dino_path, output_path, requested_metric
     stop_event = manager.Event()
 
     for task in all_data:
-        task_queue.put(task)
+        task_queue.put(Task(task, 0))
 
     # 进度监控线程
     def monitor_progress():
