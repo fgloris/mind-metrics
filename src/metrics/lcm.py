@@ -12,9 +12,9 @@ def load_models(device):
 def lcm_metric(pred, gt,
                lpips_metric, ssim_metric, psnr_metric, batch_size=100, device='cuda:0'):
     f, c, h, w = pred.size()
+    tqdm.write("tag0")
     assert(torch.all(pred >= 0.0) and torch.all(pred <= 1.0))
     result_dict = {'length': f}
-    tqdm.write("tag0")
 
     with torch.no_grad():
         mse_list = []
