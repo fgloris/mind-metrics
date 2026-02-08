@@ -91,12 +91,16 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                 sample_frames = get_video_length(os.path.join(test_dir, data_path, 'video.mp4'))
                 tqdm.write(f"{prefix}: gt_frames={gt_frames}, sample={sample_frames}, total_time={total_time}, mark_time={mark_time}")
                 result['sample_frames'] = sample_frames
-                if sample_frames != total_time - mark_time:
-                    sample_frames = min(total_time - mark_time, sample_frames)
-                    total_time = sample_frames + mark_time
 
-                gt_reader = VideoStreamReader(os.path.join(gt_dir, data_path, 'video.mp4'), start_frame=mark_time, total_frames=total_time)
-                sample_reader = VideoStreamReader(os.path.join(test_dir, data_path, 'video.mp4'), start_frame=0, total_frames=sample_frames)
+                if sample_frames != total_time - mark_time:
+                    real_time = min(total_time - mark_time, sample_frames)
+                else: real_time = sample_frames
+
+                if video_max_time is not None:
+                    real_time = min(real_time, video_max_time)
+
+                gt_reader = VideoStreamReader(os.path.join(gt_dir, data_path, 'video.mp4'), start_frame=mark_time, total_frames=mark_time + real_time)
+                sample_reader = VideoStreamReader(os.path.join(test_dir, data_path, 'video.mp4'), start_frame=0, total_frames=real_time)
 
                 while True:
                     tqdm.write(f"{prefix}: [1/5] Reading videos...")
