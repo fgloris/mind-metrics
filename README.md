@@ -1,12 +1,13 @@
 # mind-metrics
 
-## Environment build-up
+## Environment setup
 
-First follow vipe's instruction to build conda envrionment.
+First follow vipe's instruction to build conda envrionment, until ```vipe``` command is avilable
 
 https://github.com/nv-tlabs/vipe
 
-then run 
+
+then install our requirements under the same conda env:
 ```bash
 pip install -r requirements.txt 
 ```
@@ -34,10 +35,11 @@ python src/process.py --gt_root /path/to/MIND-Data --test_root /path/to/test/vid
 
 ### How Multi-GPU Works
 
-- Videos are automatically distributed across available GPUs
-- Each GPU processes its assigned subset independently
-- Progress bars show status for each GPU
-- Results are merged into a single output file
+- Videos are put into a task queue.
+- Each GPU process take one task from the queue when vacant.
+- If failed, the task will be put back into the queue.
+- Progress bars show accumulation for all results.
+- Every time when a task is finished, the result file is updated. You can obtain intermediate results from the file.
 
 ## How to order files
 
