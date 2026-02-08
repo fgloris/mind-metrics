@@ -35,11 +35,12 @@ def dino_mse_metric(pred_frames, gt_frames, dino_model=None, dino_processor=None
         batch_size=batch_size
     )  # [f, 196, 768]
 
-    # 计算每帧的MSE
-    mse_per_frame = ((pred_features - gt_features) ** 2).reshape(pred_features.shape[0], -1).mean(dim=1)  # [f]
+    # 计算每帧的距离：1 - 余弦相似度的平方
+    cosine_sim = (pred_features * gt_features).reshape(pred_features.shape[0], -1).mean(dim=1)  # [f]
+    distance_per_frame = 1 - cosine_sim ** 2  # [f]
 
-    result_dict['dino_mse'] = mse_per_frame.cpu().tolist()
-    result_dict['avg_dino_mse'] = float(mse_per_frame.mean().cpu())
+    result_dict['dino_sin'] = distance_per_frame.cpu().tolist()
+    result_dict['avg_dino_sin'] = float(distance_per_frame.mean().cpu())
 
     return result_dict
 
@@ -50,6 +51,6 @@ def merge_dino_results(result_dict, new_result):
     if new_result is None:
         return result_dict
 
-    result_dict['dino_mse'].extend(new_result['dino_mse'])
-    result_dict['avg_dino_mse'] = sum(result_dict['dino_mse']) / len(result_dict['dino_mse'])
+    result_dict['dino_sin'].extend(new_result['dino_sin'])
+    result_dict['avg_dino_sin'] = sum(result_dict['dino_sin']) / len(result_dict['dino_sin'])
     return result_dict

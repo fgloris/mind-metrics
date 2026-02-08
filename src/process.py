@@ -99,13 +99,6 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                 gt_reader = VideoStreamReader(os.path.join(gt_dir, data_path, 'video.mp4'), start_frame=mark_time, total_frames=total_time)
                 sample_reader = VideoStreamReader(os.path.join(test_dir, data_path, 'video.mp4'), start_frame=0, total_frames=sample_frames)
 
-                if 'lcm' in requested_metrics:
-                    tqdm.write(f"{prefix}: [2/5] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
-                if 'visual' in requested_metrics:
-                    tqdm.write(f"{prefix}: [3/5] Computing visual quality metrics...")
-                if 'dino' in requested_metrics:
-                    tqdm.write(f"{prefix}: [4/5] Computing dino mse metrics...")
-
                 while True:
                     is_ended, gt_imgs = gt_reader.read_batch(process_batch_size * 10)
                     _, sample_imgs = sample_reader.read_batch(process_batch_size * 10)
@@ -114,14 +107,17 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                         break
 
                     if 'lcm' in requested_metrics:
+                        tqdm.write(f"{prefix}: [2/5] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
                         lcm = lcm_metric(sample_imgs, gt_imgs, lpips_metric, ssim_metric, psnr_metric, process_batch_size, device)
                         result['lcm'] = merge_lcm_results(result.get('lcm'), lcm)
 
                     if 'visual' in requested_metrics:
+                        tqdm.write(f"{prefix}: [3/5] Computing visual quality metrics...")
                         vq = visual_quality_metric(sample_imgs, imaging_model, aesthetic_model, clip_model, process_batch_size, device)
                         result['visual_quality'] = merge_visual_results(result.get('visual_quality'), vq)
 
                     if 'dino' in requested_metrics:
+                        tqdm.write(f"{prefix}: [4/5] Computing dino metrics...")
                         dino = dino_mse_metric(sample_imgs, gt_imgs, dino_model, dino_processor, device, process_batch_size)
                         result['dino'] = merge_dino_results(result.get('dino'), dino)
 
