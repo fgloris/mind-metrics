@@ -194,7 +194,6 @@ class VideoStreamReader:
 
         is_ended = self.current_pos >= self.total_frames
         frames_tensor = torch.clamp(frames_tensor, 0.0, 1.0)
-        assert(torch.all(frames_tensor >= 0.0) and torch.all(frames_tensor <= 1.0))
         return is_ended, frames_tensor
 
     def __del__(self):

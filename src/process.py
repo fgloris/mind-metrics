@@ -28,6 +28,8 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
     warnings.filterwarnings("ignore", message=".*pretrained.*")
     warnings.filterwarnings("ignore", message=".*Weights.*")
     warnings.filterwarnings("ignore", message=".*video.*deprecated.*")
+    warnings.filterwarnings("ignore", message=".*timm\\.models\\.layers.*")
+    warnings.filterwarnings("ignore", message=".*TRANSFORMERS_CACHE.*")
     """
     在单个GPU上从任务队列获取并处理任务
     """
@@ -261,6 +263,8 @@ if __name__ == '__main__':
     warnings.filterwarnings("ignore", message=".*pretrained.*")
     warnings.filterwarnings("ignore", message=".*Weights.*")
     warnings.filterwarnings("ignore", message=".*video.*deprecated.*")
+    warnings.filterwarnings("ignore", message=".*timm\\.models\\.layers.*")
+    warnings.filterwarnings("ignore", message=".*TRANSFORMERS_CACHE.*")
 
     parser = argparse.ArgumentParser(description='Compute video metrics with multi-GPU support')
     parser.add_argument('--gt_root', type=str, default='../MIND-Data', help='Ground truth data root directory')
