@@ -21,20 +21,25 @@ def lcm_metric(pred, gt,
         ssim_list = []
 
         for i in range(0, f, batch_size):
+            print("tag1")
             # batch移到GPU
             pred_batch = pred[i:i+batch_size].to(device)
             gt_batch = gt[i:i+batch_size].to(device)
+            print("tag2")
 
             diff = (pred_batch - gt_batch) ** 2
             mse_list.extend(diff.reshape(len(pred_batch), -1).mean(dim=1).cpu().tolist())
+            print("tag3")
 
             # LPIPS 输入需要 [-1, 1] 范围
             lpips_batch = lpips_metric((pred_batch * 2 - 1), (gt_batch * 2 - 1)).cpu().tolist()
             lpips_batch = [item[0][0][0] for item in lpips_batch]
             lpips_list.extend(lpips_batch)
+            print("tag4")
 
             psnr_list.extend(psnr_metric(pred_batch, gt_batch).cpu().tolist())
             ssim_list.extend(ssim_metric(pred_batch, gt_batch).cpu().tolist())
+            print("tag5")
 
             del pred_batch, gt_batch, diff
             torch.cuda.empty_cache()
