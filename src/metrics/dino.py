@@ -37,7 +37,7 @@ def dino_mse_metric(pred_frames, gt_frames, dino_model=None, dino_processor=None
 
     # 计算每帧的距离：1 - 余弦相似度的平方
     cosine_sim = (pred_features * gt_features).reshape(pred_features.shape[0], -1).mean(dim=1)  # [f]
-    distance_per_frame = 1 - cosine_sim ** 2  # [f]
+    distance_per_frame = cosine_sim# 1 - cosine_sim ** 2  # [f]
 
     result_dict['dino_sin'] = distance_per_frame.cpu().tolist()
     result_dict['avg_dino_sin'] = float(distance_per_frame.mean().cpu())
