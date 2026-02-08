@@ -18,33 +18,19 @@ The metrics computation now supports multi-GPU parallel processing for faster ev
 
 ### Usage
 
-**Single GPU (default)**:
 ```bash
-python process.py --gt_root ../MIND-Data --test_root /path/to/test/videos
-```
-
-**Multi-GPU**:
-```bash
-python process.py --gt_root ../MIND-Data --test_root /path/to/test/videos --num_gpus 4
+python process.py --gt_root /path/to/MIND-Data --test_root /path/to/test/videos --num_gpus 8 --metrics lcm,visual,action
 ```
 
 ### Command Line Arguments
 
-- `--gt_root`: Ground truth data root directory (default: `../MIND-Data`)
+- `--gt_root`: Ground truth data root directory (required)
 - `--test_root`: Test data root directory (required)
+- `--dino_path`: DINOv3 model weights directory (default: `./dinov3_vitb16`)
 - `--num_gpus`: Number of GPUs to use for parallel processing (default: 1)
-- `--video_max_time`: Maximum video frames to process (default: 100)
-- `--output`: Output JSON file path (default: `result_YYYY-MM-DD-HH:MM:SS.json`)
-
-### Examples
-
-```bash
-# Use 4 GPUs with custom output path
-python process.py --num_gpus 4 --output my_results.json
-
-# Process only first 200 frames with 2 GPUs
-python process.py --num_gpus 2 --video_max_time 200
-```
+- `--video_max_time`: Maximum video frames to process (default: `None` = use all frames)
+- `--output`: Output JSON file path (default: `result_{test_root}_{timestamp}.json`)
+- `--metrics`: Comma-separated metrics to compute (default: `lcm,visual,dino,action`)
 
 ### How Multi-GPU Works
 

@@ -267,9 +267,8 @@ if __name__ == '__main__':
     warnings.filterwarnings("ignore", message=".*TRANSFORMERS_CACHE.*")
 
     parser = argparse.ArgumentParser(description='Compute video metrics with multi-GPU support')
-    parser.add_argument('--gt_root', type=str, default='../MIND-Data', help='Ground truth data root directory')
-    parser.add_argument('--test_root', type=str, default='./i2v',
-                       help='Test data root directory')
+    parser.add_argument('--gt_root', type=str, required=True, help='Ground truth data root directory')
+    parser.add_argument('--test_root', type=str, required=True, help='Test data root directory')
     parser.add_argument('--dino_path', type=str, default='./dinov3_vitb16',
                        help='dinov3 weight directory, for example ./dinov3_vitb16')
     parser.add_argument('--num_gpus', type=int, default=1, help='Number of GPUs to use (default: 1)')
