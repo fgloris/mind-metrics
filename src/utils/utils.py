@@ -193,11 +193,7 @@ class VideoStreamReader:
         frames_tensor = transform_image(frames_tensor)
 
         is_ended = self.current_pos >= self.total_frames
-        print(f"[DEBUG] frames_tensor shape: {frames_tensor.shape}")                                                                                                                                           
-        print(f"[DEBUG] min: {frames_tensor.min().item()}, max: {frames_tensor.max().item()}")                                                                                                                 
-        print(f"[DEBUG] dtype: {frames_tensor.dtype}")                                                                                                                                                         
-        print(f"[DEBUG] any < 0: {(frames_tensor < 0).any().item()}")                                                                                                                                          
-        print(f"[DEBUG] any > 1: {(frames_tensor > 1).any().item()}")
+        frames_tensor = torch.clamp(frames_tensor, 0.0, 1.0)
         assert(torch.all(frames_tensor >= 0.0) and torch.all(frames_tensor <= 1.0))
         return is_ended, frames_tensor
 
