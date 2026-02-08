@@ -87,9 +87,6 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                 result['mark_time'] = mark_time
                 result['total_time'] = total_time
 
-                tqdm.write(f"{prefix}: [1/5] Loading videos...")
-
-                # what i want
                 gt_frames = get_video_length(os.path.join(gt_dir, data_path, 'video.mp4'))
                 sample_frames = get_video_length(os.path.join(test_dir, data_path, 'video.mp4'))
                 tqdm.write(f"{prefix}: gt_frames={gt_frames}, sample={sample_frames}, total_time={total_time}, mark_time={mark_time}")
@@ -102,6 +99,7 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                 sample_reader = VideoStreamReader(os.path.join(test_dir, data_path, 'video.mp4'), start_frame=0, total_frames=sample_frames)
 
                 while True:
+                    tqdm.write(f"{prefix}: [1/5] Reading videos...")
                     is_ended, gt_imgs = gt_reader.read_batch(process_batch_size * 10)
                     _, sample_imgs = sample_reader.read_batch(process_batch_size * 10)
 
@@ -220,8 +218,6 @@ def compute_metrics(gt_root, test_root, dino_path, output_path, requested_metric
                     with open(output_path, 'w') as f:
                         result_dict['data'] = list(result_list)
                         json.dump(result_dict, f, indent=2)
-                else:
-                    pbar.update(0)
                 if last_count >= total_tasks:
                     break
                 time.sleep(0.5)
