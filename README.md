@@ -19,7 +19,7 @@ The metrics computation now supports multi-GPU parallel processing for faster ev
 ### Usage
 
 ```bash
-python process.py --gt_root /path/to/MIND-Data --test_root /path/to/test/videos --num_gpus 8 --metrics lcm,visual,action
+python src/process.py --gt_root /path/to/MIND-Data --test_root /path/to/test/videos --num_gpus 8 --metrics lcm,visual,action
 ```
 
 ### Command Line Arguments
