@@ -193,6 +193,7 @@ class VideoStreamReader:
         frames_tensor = transform_image(frames_tensor)
 
         is_ended = self.current_pos >= self.total_frames
+        assert(torch.all(frames_tensor >= 0.0) and torch.all(frames_tensor <= 1.0))
         return is_ended, frames_tensor
 
     def __del__(self):
