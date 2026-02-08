@@ -15,19 +15,20 @@ def lcm_metric(pred, gt,
     tqdm.write("tag0")
     assert(torch.all(pred >= 0.0) and torch.all(pred <= 1.0))
     result_dict = {'length': f}
+    tqdm.write("tag1")
 
     with torch.no_grad():
         mse_list = []
         lpips_list = []
         psnr_list = []
         ssim_list = []
-        tqdm.write("tag1")
+        tqdm.write("tag2")
 
         for i in range(0, f, batch_size):
             # batch移到GPU
             pred_batch = pred[i:i+batch_size].to(device)
             gt_batch = gt[i:i+batch_size].to(device)
-            tqdm.write("tag2")
+            tqdm.write("tag3")
 
             diff = (pred_batch - gt_batch) ** 2
             mse_list.extend(diff.reshape(len(pred_batch), -1).mean(dim=1).cpu().tolist())
