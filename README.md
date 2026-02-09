@@ -213,7 +213,11 @@ MIND-Data
 |   |    
 │   ├── mirror_test
 │   |   ├── {arbitrary data name}
-│   |   │   └── video.mp4
+│   │   │   ├── path-1.mp4
+│   │   │   ├── path-2.mp4
+│   │   │   ├── path-3.mp4
+│   │   │   ...
+│   │   │   └── path-10.mp4
 |   |   ...
 |   |
 |   └── mem_test
@@ -229,7 +233,11 @@ MIND-Data
 |   |    
 │   ├── mirror_test
 │   |   ├── {carbitrary data name}
-│   |   │   └── video.mp4
+│   │   │   ├── path-1.mp4
+│   │   │   ├── path-2.mp4
+│   │   │   ├── path-3.mp4
+│   │   │   ...
+│   │   │   └── path-10.mp4
 |   |   ...
 |   |
 │   └── mem_test

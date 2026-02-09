@@ -83,26 +83,31 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
             try:
                 if data['test_type'] == 'mirror_test' and 'gsc' in requested_metrics:
                     result = data
-                    result['error'] = None
-                    sample_frames = get_video_length(os.path.join(test_dir, data_path, 'video.mp4'))
-                    if sample_frames%2 == 1:
-                        result['error'] = 'frame count is not an even number!'
-                        tqdm.write(f"{prefix}: Task failed because frame count is not an even number!")
-                        continue
-                    result['mark_time'] = sample_frames // 2
-                    result['total_time'] = sample_frames
-                    result['sample_frames'] = sample_frames
+                    path_videos = [v for v in os.listdir(os.path.join(test_dir, data_path)) if v.endswith('.mp4')]
+                    result['video_results'] = []
+                    result['videos'] = path_videos
+                    for video in path_videos:
+                        vid_result = {'video_name': video, 'error': None}
+                        sample_frames = get_video_length(os.path.join(test_dir, data_path, video))
+                        if sample_frames%2 == 1:
+                            vid_result['error'] = 'frame count is not an even number!'
+                            tqdm.write(f"{prefix}: Task failed because frame count is not an even number!")
+                            continue
+                        vid_result['mark_time'] = sample_frames // 2
+                        vid_result['total_time'] = sample_frames
+                        vid_result['sample_frames'] = sample_frames
 
-                    tqdm.write(f"{prefix}: [1/2] Reading videos...")
-                    sample_reader = VideoStreamReader(os.path.join(test_dir, data_path, 'video.mp4'), start_frame=0, total_frames=sample_frames)
-                    imgs = sample_reader.read_batch(sample_frames)
+                        tqdm.write(f"{prefix}: [1/2] Reading videos...")
+                        sample_reader = VideoStreamReader(os.path.join(test_dir, data_path, video), start_frame=0, total_frames=sample_frames)
+                        imgs = sample_reader.read_batch(sample_frames)
 
-                    origin_pred = imgs[:sample_frames // 2]
-                    mirror_pred = torch.flip(imgs[sample_frames // 2:], dims=[0])
-                    
-                    tqdm.write(f"{prefix}: [2/2] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
-                    gsc = lcm_metric(origin_pred, mirror_pred, lpips_metric, ssim_metric, psnr_metric, process_batch_size, device)
-                    result['gsc'] = gsc
+                        origin_pred = imgs[:sample_frames // 2]
+                        mirror_pred = torch.flip(imgs[sample_frames // 2:], dims=[0])
+                        
+                        tqdm.write(f"{prefix}: [2/2] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
+                        gsc = lcm_metric(origin_pred, mirror_pred, lpips_metric, ssim_metric, psnr_metric, process_batch_size, device)
+                        vid_result['gsc'] = gsc
+                        result['video_results'].append(vid_result)
 
                 else:
                     mark_time, total_time = load_time_from_json(os.path.join(gt_dir, data_path, 'action.json'))
