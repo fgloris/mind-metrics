@@ -158,10 +158,10 @@ class VideoStreamReader:
         stream_total_frames = self.video_stream.frames
         self.total_frames = stream_total_frames if total_frames is None else total_frames
         self.current_pos = start_frame
-        print(f"[VideoStreamReader] {video_path}: stream_total={stream_total_frames}, start_frame={start_frame}, total_frames={self.total_frames}")
+        tqdm.write(f"[VideoStreamReader] {video_path}: stream_total={stream_total_frames}, start_frame={start_frame}, total_frames={self.total_frames}")
 
         if start_frame > 0:
-            print(f"[VideoStreamReader] Skipping {start_frame} frames...")
+            tqdm.write(f"[VideoStreamReader] Skipping {start_frame} frames...")
             for i in range(start_frame):
                 frame = next(self.container.decode(video=0), None)
                 if frame is None:
@@ -180,7 +180,7 @@ class VideoStreamReader:
                 frame = next(self.container.decode(video=0), None)
                 self.current_pos += 1
             except Exception as e:
-                print(f"[VideoStreamReader] ERROR: Exception at read_batch frame {i}/{frames_to_read}, current_pos={self.current_pos}: {e}")
+                tqdm.write(f"[VideoStreamReader] ERROR: Exception at read_batch frame {i}/{frames_to_read}, current_pos={self.current_pos}: {e}")
                 break
             if frame is None:
                 break

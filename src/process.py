@@ -81,25 +81,28 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
 
             prefix = f"[GPU{gpu_id}] {data_path}"
             try:
-                if data['test_type'] == 'mirror_test' and 'gsc' in requested_metrics:
-                    result = data
+                if data['test_type'] == 'mirror_test':
+                    if 'gsc' not in requested_metrics:
+                        continue
+                    result = data.copy()
                     path_videos = [v for v in os.listdir(os.path.join(test_dir, data_path)) if v.endswith('.mp4')]
                     result['video_results'] = []
                     result['videos'] = path_videos
+                    result['error'] = None
                     for video in path_videos:
                         vid_result = {'video_name': video, 'error': None}
                         sample_frames = get_video_length(os.path.join(test_dir, data_path, video))
                         if sample_frames%2 == 1:
                             vid_result['error'] = 'frame count is not an even number!'
                             tqdm.write(f"{prefix}: Task failed because frame count is not an even number!")
+                            result['video_results'].append(vid_result)
                             continue
                         vid_result['mark_time'] = sample_frames // 2
-                        vid_result['total_time'] = sample_frames
                         vid_result['sample_frames'] = sample_frames
 
                         tqdm.write(f"{prefix}: [1/2] Reading videos...")
                         sample_reader = VideoStreamReader(os.path.join(test_dir, data_path, video), start_frame=0, total_frames=sample_frames)
-                        imgs = sample_reader.read_batch(sample_frames)
+                        _, imgs = sample_reader.read_batch(sample_frames)
 
                         origin_pred = imgs[:sample_frames // 2]
                         mirror_pred = torch.flip(imgs[sample_frames // 2:], dims=[0])
@@ -111,7 +114,7 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
 
                 else:
                     mark_time, total_time = load_time_from_json(os.path.join(gt_dir, data_path, 'action.json'))
-                    result = data
+                    result = data.copy()
                     result['error'] = None
                     result['mark_time'] = mark_time
                     result['total_time'] = total_time
