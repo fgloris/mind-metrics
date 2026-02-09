@@ -162,7 +162,7 @@ class VideoStreamReader:
 
         if start_frame > 0:
             tqdm.write(f"[VideoStreamReader] Skipping {start_frame} frames...")
-            for i in range(start_frame):
+            for _ in range(start_frame):
                 frame = next(self.container.decode(video=0), None)
                 if frame is None:
                     break
@@ -178,12 +178,12 @@ class VideoStreamReader:
         for i in range(frames_to_read):
             try:
                 frame = next(self.container.decode(video=0), None)
-                self.current_pos += 1
             except Exception as e:
                 tqdm.write(f"[VideoStreamReader] ERROR: Exception at read_batch frame {i}/{frames_to_read}, current_pos={self.current_pos}: {e}")
                 break
             if frame is None:
                 break
+            self.current_pos += 1
             frames_list.append(torch.from_numpy(frame.to_rgb().to_ndarray()).float())
 
         if not frames_list:
