@@ -94,6 +94,17 @@ python src/process.py --gt_root /path/to/MIND-Data --test_root /path/to/test/vid
       "mark_time": [int] the divider of memory context and expected perdiction; the start frame index of the expected prediction.
       "total_time": [int] the total frames of the ground truth video.
       "sample_frames": [int ]the total frames of the video to be tested.
+      "gsc": { the general scene consistency metric result.
+        "length": [int] length of the origin prediction and the mirrored prediction.
+        "mse": [list[float]] the per-frame mean square error.
+        "avg_mse": [float] the average of mse.
+        "lpips": [list[float]] the per-frame Learned Perceptual Image Patch Similarity.
+        "avg_lpips": [float] the average of lpips.
+        "ssim": [list[float]] the per-frame Structural Similarity Index Measure.
+        "avg_ssim": [float] the average of ssim.
+        "psnr": [list[float]] the per-frame Peak Signal-to-Noise Ratio.
+        "avg_psnr": [float] the average of psnr.
+      },
       "lcm": { the long context memory metric result.
         "mse": [list[float]] the per-frame mean square error.
         "avg_mse": [float] the average of mse.
