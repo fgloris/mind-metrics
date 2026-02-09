@@ -172,7 +172,7 @@ class VideoStreamReader:
         if self.current_pos >= self.total_frames:
             return True, None
 
-        frames_to_read = min(batch_size, self.total_frames - self.current_pos - 1)
+        frames_to_read = min(batch_size, self.total_frames - self.current_pos)
         frames_list = []
 
         for i in range(frames_to_read):
