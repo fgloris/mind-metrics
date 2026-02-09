@@ -106,8 +106,10 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
 
                         origin_pred = imgs[:sample_frames // 2]
                         mirror_pred = torch.flip(imgs[sample_frames // 2:], dims=[0])
+
+                        tqdm.write(prefix, "part len:", len(origin_pred), len(mirror_pred))
                         
-                        tqdm.write(f"{prefix}: [2/2] Computing LCM metrics (MSE/PSNR/SSIM/LPIPS)...")
+                        tqdm.write(f"{prefix}: [2/2] Computing GSC metrics (MSE/PSNR/SSIM/LPIPS)...")
                         gsc = lcm_metric(origin_pred, mirror_pred, lpips_metric, ssim_metric, psnr_metric, process_batch_size, device)
                         vid_result['gsc'] = gsc
                         result['video_results'].append(vid_result)
