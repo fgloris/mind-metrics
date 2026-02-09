@@ -92,13 +92,13 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                     for video in path_videos:
                         vid_result = {'video_name': video, 'error': None}
                         sample_frames = get_video_length(os.path.join(test_dir, data_path, video))
+                        vid_result['mark_time'] = sample_frames // 2
+                        vid_result['sample_frames'] = sample_frames
                         if sample_frames%2 == 1:
                             vid_result['error'] = 'frame count is not an even number!'
                             tqdm.write(f"{prefix}: Task failed because frame count is not an even number!")
                             result['video_results'].append(vid_result)
                             continue
-                        vid_result['mark_time'] = sample_frames // 2
-                        vid_result['sample_frames'] = sample_frames
 
                         tqdm.write(f"{prefix}: [1/2] Reading videos...")
                         sample_reader = VideoStreamReader(os.path.join(test_dir, data_path, video), start_frame=0, total_frames=sample_frames)
@@ -111,6 +111,9 @@ def compute_metrics_single_gpu(task_queue, result_list, gt_root, test_root, dino
                         gsc = lcm_metric(origin_pred, mirror_pred, lpips_metric, ssim_metric, psnr_metric, process_batch_size, device)
                         vid_result['gsc'] = gsc
                         result['video_results'].append(vid_result)
+
+                        del sample_reader                                                                                                                                                                  
+                        torch.cuda.empty_cache()
 
                 else:
                     mark_time, total_time = load_time_from_json(os.path.join(gt_dir, data_path, 'action.json'))
@@ -217,15 +220,17 @@ def compute_metrics(gt_root, test_root, dino_path, output_path, requested_metric
     for perspective in ['1st_data', '3rd_data']:
         for test_type in ['mem_test', 'action_space_test', 'mirror_test']:
             if test_type == 'mirror_test':
-                test_dir = os.path.join(test_root, perspective, test_type)
-                all_data += [{'path': d, 'perspective': perspective, 'test_type': test_type}
-                    for d in os.listdir(test_dir)]
+                if 'gsc' in requested_metrics:
+                    test_dir = os.path.join(test_root, perspective, test_type)
+                    all_data += [{'path': d, 'perspective': perspective, 'test_type': test_type }
+                        for d in os.listdir(test_dir)]
             else:
-                gt_dir = os.path.join(gt_root, perspective, 'test', test_type)
-                test_dir = os.path.join(test_root, perspective, test_type)
+                if 'lcm' in requested_metrics or 'visual' in requested_metrics or 'dino' in requested_metrics or 'action' in requested_metrics:
+                    gt_dir = os.path.join(gt_root, perspective, 'test', test_type)
+                    test_dir = os.path.join(test_root, perspective, test_type)
 
-                all_data += [{'path': d, 'perspective': perspective, 'test_type': test_type}
-                    for d in os.listdir(gt_dir) if os.path.exists(os.path.join(test_dir, d))]
+                    all_data += [{'path': d, 'perspective': perspective, 'test_type': test_type}
+                        for d in os.listdir(test_dir) if os.path.exists(os.path.join(gt_dir, d))]
 
     if len(all_data) == 0:
         tqdm.write(f"No data found!")
